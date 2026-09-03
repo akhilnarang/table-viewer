@@ -9,13 +9,16 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
 <style>
   :root {
+    color-scheme: light dark;
     --bg: #f6f7f9; --panel: #fff; --border: #d9dde3; --text: #1c1f24; --muted: #6b7280;
-    --accent: #2563eb; --accent-bg: #eaf1ff; --stripe: #f9fafb; --hover: #eef2f7; --danger: #b91c1c;
+    --accent: #2563eb; --accent-text: #fff; --accent-bg: #eaf1ff; --stripe: #f9fafb; --hover: #eef2f7;
+    --danger: #b91c1c; --danger-bg: #fee2e2; --warn: #92400e; --warn-bg: #fef3c7; --active: #bfdbfe;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #111418; --panel: #181c22; --border: #2c323b; --text: #e6e8eb; --muted: #9aa3ad;
-      --accent: #60a5fa; --accent-bg: #1e2a3f; --stripe: #1b2027; --hover: #232a33; --danger: #f87171;
+      --accent: #60a5fa; --accent-text: #0b1220; --accent-bg: #1e2a3f; --stripe: #1b2027; --hover: #232a33;
+      --danger: #fca5a5; --danger-bg: #3b1d1d; --warn: #fde68a; --warn-bg: #3a2e12; --active: #1e3a8a;
     }
   }
   * { box-sizing: border-box; }
@@ -24,105 +27,220 @@
     font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     background: var(--bg); color: var(--text); display: flex; flex-direction: column;
   }
-  header { padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--panel); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-  header h1 { font-size: 16px; margin: 0 8px 0 0; }
-  input[type=text], select { font: inherit; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
-  input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-  button { font: inherit; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  header { padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; position: relative; }
+  header h1 { font-size: 16px; margin: 0 4px 0 0; }
+  input[type=text], input[type=number], select { font: inherit; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); min-height: 34px; }
+  button { font: inherit; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); cursor: pointer; min-height: 34px; }
   button:hover { background: var(--hover); }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .url-form { display: flex; gap: 6px; flex: 1; min-width: 280px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+  button.ghost { border-color: transparent; background: transparent; }
+  button.ghost:hover { background: var(--hover); }
+  .url-form { display: flex; gap: 6px; flex: 1; min-width: 260px; }
   .url-form input { flex: 1; }
   .muted { color: var(--muted); }
-  .error { color: var(--danger); }
+  #filename { font-weight: 600; max-width: 30vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #status { color: var(--muted); }
+
+  /* Indeterminate progress bar under the header while a file loads. */
+  #progress { height: 3px; background: var(--border); overflow: hidden; position: relative; }
+  #progress::after { content: ""; position: absolute; left: -40%; width: 40%; height: 100%; background: var(--accent); animation: slide 1.1s infinite linear; }
+  @keyframes slide { to { left: 100%; } }
+  @media (prefers-reduced-motion: reduce) { #progress::after { animation: none; left: 0; width: 100%; } }
+
+  #alert { display: flex; gap: 12px; align-items: flex-start; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  [hidden] { display: none !important; }
+  #alert.error { background: var(--danger-bg); color: var(--danger); }
+  #alert.warn { background: var(--warn-bg); color: var(--warn); }
+  #alert p { margin: 0; flex: 1; }
+  #alert button { color: inherit; border-color: currentColor; background: transparent; padding: 2px 8px; min-height: 0; }
 
   #drop {
     flex: 1; margin: 24px; border: 2px dashed var(--border); border-radius: 12px; display: flex;
     flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); text-align: center; padding: 24px;
   }
-  #drop.over, body.dragging #drop { border-color: var(--accent); background: var(--accent-bg); color: var(--text); }
+  body.dragging #drop { border-color: var(--accent); background: var(--accent-bg); color: var(--text); }
   #drop strong { font-size: 18px; color: var(--text); }
-  #drop label { color: var(--accent); cursor: pointer; text-decoration: underline; }
+  #drop label, #drop a { color: var(--accent); cursor: pointer; text-decoration: underline; }
+  #drop details { margin-top: 12px; max-width: 520px; text-align: left; }
+  #drop summary { cursor: pointer; text-align: center; color: var(--accent); }
+  #drop details ul { margin: 8px 0 0; padding-left: 20px; }
+  #drop details li { margin: 4px 0; }
+  kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--panel); color: var(--text); }
+  code { font: 13px ui-monospace, monospace; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
 
   #view { display: none; flex: 1; flex-direction: column; min-height: 0; }
   .toolbar { padding: 8px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border-bottom: 1px solid var(--border); background: var(--panel); }
-  .toolbar input[type=text] { min-width: 240px; }
+  .toolbar .group { display: flex; gap: 8px; align-items: center; }
+  .searchbox { position: relative; }
+  .searchbox input { min-width: 240px; padding-right: 30px; }
+  .searchbox #clear { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); border: 0; background: transparent; padding: 2px 8px; min-height: 0; color: var(--muted); font-size: 16px; line-height: 1; }
+  .searchbox #clear:hover { color: var(--text); }
   .spacer { flex: 1; }
-  .tablewrap { flex: 1; overflow: auto; min-height: 0; }
+  .menu { position: relative; }
+  .menu summary { list-style: none; cursor: pointer; font: inherit; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); min-height: 34px; display: inline-flex; align-items: center; }
+  .menu summary::-webkit-details-marker { display: none; }
+  .menu summary:hover { background: var(--hover); }
+  .menu-body { position: absolute; top: calc(100% + 4px); left: 0; z-index: 5; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 8px; min-width: 240px; max-height: 60vh; overflow: auto; }
+  .menu-body label { display: flex; gap: 8px; align-items: center; padding: 4px 6px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .menu-body label:hover { background: var(--hover); }
+  .menu-body .row { display: flex; gap: 6px; margin-bottom: 6px; }
+  .menu-body .row button { flex: 1; padding: 4px 8px; min-height: 0; }
+
+  .tablewrap { flex: 1; overflow: auto; min-height: 0; outline-offset: -2px; }
   table { border-collapse: separate; border-spacing: 0; min-width: 100%; font-variant-numeric: tabular-nums; }
   th, td { padding: 6px 10px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); white-space: nowrap; max-width: 480px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
-  th { position: sticky; top: 0; background: var(--panel); cursor: pointer; user-select: none; z-index: 1; font-weight: 600; }
-  th:hover { background: var(--hover); }
-  th .dir { color: var(--accent); margin-left: 4px; font-size: 11px; }
-  th.num, td.num { text-align: right; }
-  td.rownum, th.rownum { color: var(--muted); text-align: right; background: var(--stripe); cursor: default; font-weight: normal; }
+  th { position: sticky; top: 0; background: var(--panel); user-select: none; z-index: 1; font-weight: 600; padding: 0; }
+  th .sortbtn { all: unset; display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 10px; cursor: pointer; box-sizing: border-box; overflow: hidden; }
+  th .sortbtn:hover { background: var(--hover); }
+  th .sortbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  th .label { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  th .dir { color: var(--muted); font-size: 11px; opacity: .45; }
+  th[aria-sort="ascending"] .dir, th[aria-sort="descending"] .dir { color: var(--accent); opacity: 1; }
+  th.num .sortbtn { flex-direction: row-reverse; }
+  th.num .label { text-align: right; }
+  td.num { text-align: right; }
+  /* The row-number column stays in view when the table scrolls sideways. */
+  td.rownum, th.rownum { color: var(--muted); text-align: right; background: var(--stripe); font-weight: normal; position: sticky; left: 0; z-index: 2; box-shadow: 1px 0 0 var(--border); padding: 6px 10px; }
+  th.rownum { z-index: 3; background: var(--panel); }
   tbody tr:nth-child(even) td { background: var(--stripe); }
   tbody tr:hover td { background: var(--hover); }
+  tbody td.active { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--active) !important; }
   td.wrap { white-space: pre-wrap; max-width: none; }
-  /* Column resize. After the first drag, the table uses fixed widths from state.colWidths. */
+  /* Column resize. After the first change, the table uses fixed widths from state.colWidths. */
   table.resized { table-layout: fixed; min-width: 0; }
   table.resized th, table.resized td { max-width: none; }
-  th .rz { position: absolute; top: 0; right: -4px; width: 9px; height: 100%; cursor: col-resize; z-index: 2; }
-  th .rz:hover, th .rz.active { background: var(--accent); opacity: .6; }
+  th .rz { position: absolute; top: 0; right: -6px; width: 12px; height: 100%; cursor: col-resize; z-index: 2; }
+  th .rz::after { content: ""; position: absolute; left: 5px; top: 20%; height: 60%; width: 2px; background: transparent; }
+  th .rz:hover::after, th .rz.active::after, th .rz:focus-visible::after { background: var(--accent); }
+  th .rz:focus-visible { outline: none; }
   body.resizing, body.resizing * { cursor: col-resize !important; user-select: none; }
   mark { background: #fde68a; color: #1c1f24; padding: 0; border-radius: 2px; }
+
   .pager { display: flex; gap: 6px; align-items: center; padding: 8px 16px; border-top: 1px solid var(--border); background: var(--panel); flex-wrap: wrap; }
   .pager button:disabled { opacity: .4; cursor: default; }
-  #status { padding: 0 16px; }
+  .pager button { min-width: 36px; }
+
+  dialog { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); color: var(--text); padding: 0; width: min(720px, 92vw); max-height: 80vh; }
+  dialog::backdrop { background: rgba(0,0,0,.4); }
+  dialog .dhead { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  dialog h2 { font-size: 14px; margin: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  dialog pre { margin: 0; padding: 14px; white-space: pre-wrap; word-break: break-word; max-height: 60vh; overflow: auto; font: 13px/1.5 ui-monospace, monospace; }
+  dialog .dfoot { padding: 8px 14px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; display: flex; gap: 8px; align-items: center; }
+
+  @media (max-width: 700px) {
+    header { padding: 8px 12px; gap: 8px; }
+    header h1 { flex: 1; }
+    .url-form { flex-basis: 100%; }
+    #filename { max-width: 100%; flex-basis: 100%; }
+    .toolbar, .pager { padding: 8px 12px; gap: 8px; }
+    .searchbox { flex-basis: 100%; }
+    .searchbox input { width: 100%; min-width: 0; }
+    button, .menu summary, input[type=text], select { min-height: 40px; }
+    .pager label span { display: none; }
+    th, td { max-width: 60vw; }
+  }
 </style>
 </head>
 <body>
 <header>
   <h1>Table Viewer</h1>
-  <label><input type="file" id="file" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.ods,.json" hidden><button type="button" onclick="document.getElementById('file').click()">Open file</button></label>
+  <input type="file" id="file" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.ods,.json" hidden>
+  <button type="button" id="open">Open file</button>
   <form class="url-form" id="urlform">
+    <label for="url" class="sr-only">Link to a data file</label>
     <input type="text" id="url" placeholder="Paste a link to a CSV file, an Excel file, or a Google Sheet" autocomplete="off">
     <button class="primary" type="submit">Load</button>
   </form>
-  <span id="status" class="muted"></span>
+  <span id="filename" title=""></span>
+  <span id="status" role="status" aria-live="polite"></span>
 </header>
+<div id="progress" hidden aria-hidden="true"></div>
+<div id="alert" role="alert" hidden><p id="alerttext"></p><button type="button" id="alertclose" aria-label="Dismiss message">Dismiss</button></div>
 
 <div id="drop">
   <strong>Drop a file here</strong>
   <span>CSV, TSV, Excel (.xlsx, .xls), ODS, or JSON. Or <label for="file">select a file</label>. Or paste a link above.</span>
-  <span class="muted">You can also paste CSV text on this page with Ctrl+V.</span>
+  <span>You can also press <kbd>Ctrl</kbd>+<kbd>V</kbd> to paste a file, CSV text, or a link.</span>
+  <details>
+    <summary>Tips and shortcuts</summary>
+    <ul>
+      <li>Open a link directly: add <code>?url=https://…</code> to this page address. You can bookmark it.</li>
+      <li>Click a column name to sort. Click again to reverse. Click a third time to remove the sort.</li>
+      <li>Drag the right edge of a column name to change the width. Double-click the edge to fit the content.</li>
+      <li>Click a cell to select it. Double-click it, or press <kbd>Enter</kbd>, to see the full value and copy it.</li>
+      <li>Use the arrow keys to move between cells. <kbd>PageDown</kbd> and <kbd>PageUp</kbd> change the page.</li>
+      <li><kbd>Ctrl</kbd>+<kbd>F</kbd> moves the cursor to the search box. <kbd>Esc</kbd> clears the search.</li>
+      <li>Set "Header row" to 0 if the file has no column names.</li>
+    </ul>
+  </details>
 </div>
 
 <div id="view">
   <div class="toolbar">
-    <input type="text" id="search" placeholder="Search all columns…" autocomplete="off">
-    <select id="sheet" title="Sheet" style="display:none"></select>
-    <label title="The row that contains the column names. Use 0 if there is no header row.">Header row <input type="number" id="headerrow" min="0" value="1" style="width:56px;font:inherit;padding:5px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text)"></label>
-    <label><input type="checkbox" id="wrap"> Wrap text</label>
+    <div class="group">
+      <div class="searchbox">
+        <label for="search" class="sr-only">Search all columns</label>
+        <input type="text" id="search" placeholder="Search all columns…" autocomplete="off">
+        <button type="button" id="clear" aria-label="Clear search" hidden>&times;</button>
+      </div>
+      <label for="sheet" class="sr-only">Sheet</label>
+      <select id="sheet" title="Sheet" style="display:none"></select>
+      <details class="menu" id="colmenu">
+        <summary title="Show or hide columns">Columns</summary>
+        <div class="menu-body" id="colmenubody"></div>
+      </details>
+    </div>
+    <div class="group">
+      <label title="The row that contains the column names. Use 0 if there is no header row.">Header row <input type="number" id="headerrow" min="0" value="1" style="width:60px"></label>
+      <label><input type="checkbox" id="wrap"> Wrap text</label>
+    </div>
     <span class="spacer"></span>
-    <span id="count" class="muted"></span>
-    <button id="download" title="Download the rows that are shown, in the current order, as a CSV file">Download CSV</button>
-    <button id="reset">Close</button>
+    <span id="count" class="muted" aria-live="polite"></span>
+    <button id="download" title="Download all filtered rows and visible columns as a CSV file">Download CSV</button>
+    <button id="reset" class="ghost">Close</button>
   </div>
-  <div class="tablewrap"><table id="table"><colgroup></colgroup><thead></thead><tbody></tbody></table></div>
+  <div class="tablewrap" id="tablewrap" tabindex="0" role="region" aria-label="Data table. Use the arrow keys to move between cells.">
+    <table id="table"><colgroup></colgroup><thead></thead><tbody></tbody></table>
+  </div>
   <div class="pager">
-    <button id="first">&laquo;</button><button id="prev">&lsaquo;</button>
-    <span id="pageinfo"></span>
-    <button id="next">&rsaquo;</button><button id="last">&raquo;</button>
+    <button id="first" aria-label="First page" title="First page (Home)">&laquo;</button><button id="prev" aria-label="Previous page" title="Previous page (PageUp or [)">&lsaquo;</button>
+    <span id="pageinfo" aria-live="polite"></span>
+    <button id="next" aria-label="Next page" title="Next page (PageDown or ])">&rsaquo;</button><button id="last" aria-label="Last page" title="Last page (End)">&raquo;</button>
     <span class="spacer"></span>
-    <label>Rows per page
-      <select id="pagesize"><option>50</option><option selected>100</option><option>250</option><option>500</option><option>1000</option><option>5000</option></select>
+    <label><span>Rows per page</span>
+      <select id="pagesize" aria-label="Rows per page"><option>50</option><option selected>100</option><option>250</option><option>500</option><option>1000</option><option>5000</option></select>
     </label>
   </div>
 </div>
 
+<dialog id="cell" aria-labelledby="cellhead">
+  <div class="dhead"><h2 id="cellhead"></h2><button type="button" id="cellcopy">Copy</button><button type="button" id="cellclose" class="ghost" aria-label="Close">&times;</button></div>
+  <pre id="cellval"></pre>
+  <div class="dfoot"><span id="cellmeta"></span><span class="spacer"></span><span id="copied" hidden>Copied</span></div>
+</dialog>
+
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-  const state = { workbook: null, name: '', headers: [], rows: [], filtered: [], sortCol: -1, sortDir: 1, page: 0, query: '', numeric: [] };
+  const state = { workbook: null, name: '', raw: [], headers: [], rows: [], filtered: [], sortCol: -1, sortDir: 1, page: 0, query: '', numeric: [], colWidths: null, hidden: new Set(), active: null };
 
-  // ---------- status ----------
-  const setStatus = (msg, isError) => { const s = $('status'); s.textContent = msg || ''; s.className = isError ? 'error' : 'muted'; };
+  // ---------- status, progress, alerts ----------
+  const setStatus = msg => { $('status').textContent = msg || ''; };
+  const setBusy = on => { $('progress').hidden = !on; document.body.setAttribute('aria-busy', on ? 'true' : 'false'); };
+  function showAlert(msg, kind = 'error') {
+    const a = $('alert'); a.className = kind; $('alerttext').textContent = msg; a.hidden = false;
+  }
+  const hideAlert = () => { $('alert').hidden = true; };
+  // Stop a load and show the reason.
+  const fail = msg => { setBusy(false); setStatus(''); showAlert(msg, 'error'); };
 
   // ---------- loading ----------
   // Each load gets a number. A load that finishes after a newer load started is ignored.
   let loadSeq = 0;
-  const newLoad = () => ++loadSeq;
+  const newLoad = () => { hideAlert(); setBusy(true); return ++loadSeq; };
   const isStale = id => id !== loadSeq;
 
   function loadFile(file) {
@@ -130,7 +248,7 @@
     setStatus(`Reading ${file.name}…`);
     const ext = (file.name.split('.').pop() || '').toLowerCase();
     const reader = new FileReader();
-    reader.onerror = () => setStatus('Cannot read the file', true);
+    reader.onerror = () => { if (!isStale(id)) fail('Cannot read the file'); };
     if (['xlsx', 'xlsm', 'xls', 'ods', 'xlsb'].includes(ext)) {
       reader.onload = e => { if (!isStale(id)) loadWorkbook(new Uint8Array(e.target.result), file.name); };
       reader.readAsArrayBuffer(file);
@@ -145,46 +263,53 @@
   // input is a File or a string. The parser runs in a web worker, so the page does not freeze on large files.
   function loadCSV(input, name, id = newLoad()) {
     if (typeof input === 'string') input = input.replace(/^\uFEFF/, '');
+    setStatus(`Parsing ${name}…`);
     Papa.parse(input, {
       worker: true, skipEmptyLines: 'greedy',
       complete: res => {
         if (isStale(id)) return;
-        if (!res.data.length) return setStatus('No rows found', true);
+        if (!res.data.length) return fail('No rows found');
         setData(name, res.data);
         const bad = res.errors.filter(e => e.code !== 'UndetectableDelimiter').length;
-        if (bad) setStatus(`${name} · ${bad} rows have problems (bad quotes or a wrong number of fields)`);
+        if (bad) showAlert(`${bad.toLocaleString()} rows have problems, for example bad quotes or a wrong number of fields. The table shows them as parsed.`, 'warn');
       },
-      error: err => setStatus(`Cannot parse the file: ${err.message || err}`, true),
+      error: err => { if (!isStale(id)) fail(`Cannot parse the file: ${err.message || err}`); },
     });
   }
 
   function loadJSON(text, name) {
     let data;
-    try { data = JSON.parse(text); } catch (e) { return setStatus('The JSON is not valid: ' + e.message, true); }
-    if (!data || typeof data !== 'object') return setStatus('The JSON must be an array or an object', true);
+    try { data = JSON.parse(text); } catch (e) { return fail('The JSON is not valid: ' + e.message); }
+    if (!data || typeof data !== 'object') return fail('The JSON must be an array or an object');
     if (!Array.isArray(data)) { const k = Object.keys(data).find(k => Array.isArray(data[k])); data = k ? data[k] : [data]; }
-    if (!data.length) return setStatus('No rows found', true);
+    if (!data.length) return fail('No rows found');
     if (Array.isArray(data[0])) return setData(name, data);
-    const headers = [...new Set(data.flatMap(r => Object.keys(r)))];
-    setData(name, [headers, ...data.map(r => headers.map(h => { const v = r[h]; return v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : v; }))]);
+    const objs = data.filter(r => r && typeof r === 'object');
+    const headers = [...new Set(objs.flatMap(r => Object.keys(r)))];
+    if (!headers.length) return fail('The JSON has no rows with fields');
+    setData(name, [headers, ...objs.map(r => headers.map(h => { const v = r[h]; return v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : v; }))]);
   }
 
   function loadWorkbook(bytes, name) {
-    let wb;
-    try { wb = XLSX.read(bytes, { type: 'array' }); } catch (e) { return setStatus(`Cannot read the workbook: ${e.message}`, true); }
-    state.workbook = wb;
-    const sel = $('sheet');
-    sel.innerHTML = '';
-    wb.SheetNames.forEach(n => { const o = document.createElement('option'); o.textContent = n; sel.appendChild(o); });
-    sel.style.display = wb.SheetNames.length > 1 ? '' : 'none';
-    state.name = name;
-    selectSheet(wb.SheetNames[0]);
+    setStatus(`Reading workbook ${name}…`);
+    // Wait one frame so the progress bar shows. The workbook parser runs on the main thread.
+    setTimeout(() => {
+      let wb;
+      try { wb = XLSX.read(bytes, { type: 'array' }); } catch (e) { return fail(`Cannot read the workbook: ${e.message}`); }
+      state.workbook = wb;
+      const sel = $('sheet');
+      sel.innerHTML = '';
+      wb.SheetNames.forEach(n => { const o = document.createElement('option'); o.textContent = n; sel.appendChild(o); });
+      sel.style.display = wb.SheetNames.length > 1 ? '' : 'none';
+      state.name = name;
+      selectSheet(wb.SheetNames[0]);
+    }, 30);
   }
 
   function selectSheet(sheetName) {
     const ws = state.workbook.Sheets[sheetName];
     const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' }).filter(r => r.some(c => c !== ''));
-    if (!aoa.length) return setStatus(`Sheet "${sheetName}" is empty`, true);
+    if (!aoa.length) return fail(`Sheet "${sheetName}" is empty`);
     setData(state.name, aoa, true);
   }
 
@@ -205,8 +330,8 @@
   }
 
   // First, get the file directly from the browser. If the remote site blocks cross-origin
-  // requests, use the optional /proxy Pages Function (functions/proxy.js). If the function
-  // is not deployed, show a message to the user.
+  // requests, use the optional /proxy path (src/proxy.js). If the proxy is not deployed,
+  // show a message to the user.
   async function fetchBytes(url) {
     let directErr;
     try {
@@ -220,7 +345,7 @@
     if (location.protocol.startsWith('http')) {
       try {
         const r = await fetch(`/proxy?url=${encodeURIComponent(url)}`);
-        // The function is present only if it sends X-Upstream-Type. A missing function gives a 404 or an HTML page.
+        // The proxy is present only if it sends X-Upstream-Type. A missing proxy gives a 404 or an HTML page.
         const upstreamType = r.headers.get('x-upstream-type');
         if (r.ok && upstreamType != null) {
           return { buf: await r.arrayBuffer(), type: upstreamType, finalUrl: r.headers.get('x-final-url') || url };
@@ -250,14 +375,14 @@
         const text = new TextDecoder(enc).decode(buf);
         if (/^\s*[\[{]/.test(text) && (/json/.test(type) || /\.json$/i.test(name))) loadJSON(text, name);
         else if (/<html/i.test(text.slice(0, 500))) throw new Error('the link returned a web page, not a data file. Make sure the file is public.');
-        else loadCSV(text, name);
+        else loadCSV(text, name, id);
       }
     } catch (e) {
-      setStatus(`Cannot load the link: ${e.message}`, true);
+      if (!isStale(id)) fail(`Cannot load the link: ${e.message}`);
     }
   }
 
-  // ---------- data / render ----------
+  // ---------- data ----------
   // raw is an array of rows. It includes the header row. The "Header row" box selects the row that has the column names.
   function setData(name, raw, keepSheetSelect) {
     if (!keepSheetSelect) { state.workbook = null; $('sheet').style.display = 'none'; }
@@ -267,10 +392,12 @@
     const first = raw[0].map(c => String(c).trim());
     const isNumbering = first.length > 1 && first.every((c, i) => c === String(i + 1));
     $('headerrow').value = isNumbering && raw.length > 1 ? 2 : 1;
-    state.sortCol = -1; state.sortDir = 1; state.page = 0; state.query = ''; state.colWidths = null; $('search').value = '';
+    state.query = ''; state.colWidths = null; state.hidden = new Set(); state.active = null;
+    $('search').value = ''; $('clear').hidden = true;
     document.title = `${name} – Table Viewer`;
+    $('filename').textContent = name; $('filename').title = name;
     $('drop').style.display = 'none'; $('view').style.display = 'flex';
-    setStatus(name);
+    setBusy(false); setStatus('');
     buildFromRaw();
   }
 
@@ -291,15 +418,17 @@
       return total > 0 && n / total > 0.9;
     });
     state.sortCol = -1; state.sortDir = 1; state.page = 0;
+    buildColumnMenu();
     applyFilter();
   }
 
   const isNumberLike = v => /^-?[$€£]?\s*[\d,]*\.?\d+\s*%?$/.test(v);
   const toNumber = v => { const s = String(v).replace(/[$€£,%\s]/g, ''); const n = parseFloat(s); return isNaN(n) ? null : n; };
+  const visibleCols = () => state.headers.map((_, i) => i).filter(i => !state.hidden.has(i));
 
   function applyFilter() {
-    const q = state.query.toLowerCase();
-    state.filtered = q ? state.rows.filter(r => r.some(c => String(c).toLowerCase().includes(q))) : state.rows.slice();
+    const q = state.query.toLowerCase(), cols = visibleCols();
+    state.filtered = q ? state.rows.filter(r => cols.some(c => String(r[c]).toLowerCase().includes(q))) : state.rows.slice();
     applySort();
   }
 
@@ -337,28 +466,180 @@
   const queryRegex = () => new RegExp(`(${state.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
   const escapeHtml = s => s.replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
 
+  // ---------- render ----------
   function render() {
-    const thead = $('table').tHead, tbody = $('table').tBodies[0];
-    thead.innerHTML = '<tr><th class="rownum">#</th>' + state.headers.map((h, i) =>
-      `<th data-col="${i}" class="${state.numeric[i] ? 'num' : ''}" title="Sort by ${escapeHtml(h)}">${escapeHtml(h)}${state.sortCol === i ? `<span class="dir">${state.sortDir > 0 ? '▲' : '▼'}</span>` : ''}<span class="rz" title="Drag to resize. Double-click to fit."></span></th>`).join('') + '</tr>';
+    const thead = $('table').tHead, tbody = $('table').tBodies[0], cols = visibleCols();
+    thead.innerHTML = '<tr><th class="rownum" scope="col"><span class="sr-only">Row</span>#</th>' + cols.map(i => {
+      const h = state.headers[i], sorted = state.sortCol === i;
+      const ariaSort = sorted ? (state.sortDir > 0 ? 'ascending' : 'descending') : 'none';
+      const next = !sorted ? 'Sort ascending' : state.sortDir > 0 ? 'Sort descending' : 'Remove the sort';
+      const icon = sorted ? (state.sortDir > 0 ? '▲' : '▼') : '↕';
+      return `<th data-col="${i}" class="${state.numeric[i] ? 'num' : ''}" scope="col" aria-sort="${ariaSort}">` +
+        `<button type="button" class="sortbtn" title="${next}"><span class="label">${escapeHtml(h)}</span><span class="dir" aria-hidden="true">${icon}</span></button>` +
+        `<span class="rz" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize column ${escapeHtml(h)}" title="Drag to resize. Double-click to fit. Arrow keys also work."></span></th>`;
+    }).join('') + '</tr>';
     applyColWidths();
 
     const size = pageSize(), start = state.page * size, slice = state.filtered.slice(start, start + size);
     const wrap = $('wrap').checked ? ' wrap' : '';
-    tbody.innerHTML = slice.map((r, i) =>
-      `<tr><td class="rownum">${start + i + 1}</td>` + r.map((c, ci) => `<td class="${state.numeric[ci] ? 'num' : ''}${wrap}" title="${escapeHtml(String(c))}">${highlight(c)}</td>`).join('') + '</tr>').join('');
+    const act = state.active;
+    tbody.innerHTML = slice.map((r, ri) =>
+      `<tr><td class="rownum">${start + ri + 1}</td>` + cols.map(ci =>
+        `<td data-r="${ri}" data-c="${ci}" class="${state.numeric[ci] ? 'num' : ''}${wrap}${act && act.r === ri && act.c === ci ? ' active' : ''}" title="${escapeHtml(String(r[ci]))}">${highlight(r[ci])}</td>`).join('') + '</tr>').join('');
 
-    const total = state.rows.length, shown = state.filtered.length;
-    $('count').textContent = (shown === total ? `${total.toLocaleString()} rows` : `${shown.toLocaleString()} of ${total.toLocaleString()} rows`) + ` · ${state.headers.length} columns`;
+    const total = state.rows.length, shown = state.filtered.length, hiddenN = state.hidden.size;
+    $('count').textContent = (shown === total ? `${total.toLocaleString()} rows` : `${shown.toLocaleString()} of ${total.toLocaleString()} rows`) +
+      ` · ${cols.length} columns` + (hiddenN ? ` (${hiddenN} hidden)` : '');
     const pc = pageCount();
     $('pageinfo').textContent = shown ? `${(start + 1).toLocaleString()}–${Math.min(start + size, shown).toLocaleString()} (page ${state.page + 1} of ${pc})` : 'No matching rows';
     $('first').disabled = $('prev').disabled = state.page === 0;
     $('next').disabled = $('last').disabled = state.page >= pc - 1;
   }
 
+  // ---------- column menu ----------
+  function buildColumnMenu() {
+    const body = $('colmenubody');
+    body.innerHTML = '<div class="row"><button type="button" data-act="all">Show all</button><button type="button" data-act="none">Hide all</button></div>' +
+      state.headers.map((h, i) => `<label><input type="checkbox" data-col="${i}" ${state.hidden.has(i) ? '' : 'checked'}> <span>${escapeHtml(h)}</span></label>`).join('');
+  }
+  $('colmenubody').addEventListener('change', e => {
+    const cb = e.target.closest('input[data-col]'); if (!cb) return;
+    const i = +cb.dataset.col;
+    if (cb.checked) state.hidden.delete(i); else if (state.hidden.size < state.headers.length - 1) state.hidden.add(i); else cb.checked = true;   // Keep at least one column.
+    state.active = null;
+    if (state.sortCol === i && state.hidden.has(i)) { state.sortCol = -1; state.sortDir = 1; }
+    applyFilter();
+  });
+  $('colmenubody').addEventListener('click', e => {
+    const b = e.target.closest('button[data-act]'); if (!b) return;
+    state.hidden = b.dataset.act === 'all' ? new Set() : new Set(state.headers.map((_, i) => i).slice(1));
+    if (state.hidden.has(state.sortCol)) { state.sortCol = -1; state.sortDir = 1; }
+    state.active = null;
+    buildColumnMenu(); applyFilter();
+  });
+  document.addEventListener('click', e => { const m = $('colmenu'); if (m.open && !m.contains(e.target)) m.open = false; });
+
+  // ---------- column resize ----------
+  // state.colWidths is keyed by column: index 0 is the row-number column, index i+1 is data column i.
+  const colKey = th => th.classList.contains('rownum') ? 0 : +th.dataset.col + 1;
+  function applyColWidths() {
+    const table = $('table'), w = state.colWidths;
+    table.classList.toggle('resized', !!w);
+    if (!w) { table.querySelector('colgroup').innerHTML = ''; table.style.width = ''; return; }
+    const keys = [...table.tHead.rows[0].cells].map(colKey);
+    table.querySelector('colgroup').innerHTML = keys.map(k => `<col style="width:${w[k]}px">`).join('');
+    table.style.width = keys.reduce((a, k) => a + w[k], 0) + 'px';
+    for (const th of table.tHead.rows[0].cells) { const rz = th.querySelector('.rz'); if (rz) rz.setAttribute('aria-valuenow', w[colKey(th)]); }
+  }
+  function captureColWidths() {
+    if (state.colWidths) return;
+    state.colWidths = new Array(state.headers.length + 1).fill(120);
+    for (const th of $('table').tHead.rows[0].cells) state.colWidths[colKey(th)] = th.offsetWidth;
+    applyColWidths();
+  }
+  let justResized = false;
+  $('table').tHead.addEventListener('pointerdown', e => {
+    const rz = e.target.closest('.rz'); if (!rz || e.button !== 0) return;
+    e.preventDefault();
+    captureColWidths();
+    const key = colKey(rz.parentElement), startX = e.clientX, startW = state.colWidths[key];
+    rz.classList.add('active'); document.body.classList.add('resizing'); rz.setPointerCapture(e.pointerId);
+    const move = ev => { state.colWidths[key] = Math.max(40, startW + ev.clientX - startX); applyColWidths(); };
+    const up = () => {
+      rz.removeEventListener('pointermove', move); rz.removeEventListener('pointerup', up); rz.removeEventListener('pointercancel', up);
+      rz.classList.remove('active'); document.body.classList.remove('resizing');
+      justResized = true; setTimeout(() => { justResized = false; }, 0);
+    };
+    rz.addEventListener('pointermove', move); rz.addEventListener('pointerup', up); rz.addEventListener('pointercancel', up);
+  });
+  // Make the column as wide as its widest visible cell.
+  function fitColumn(th) {
+    captureColWidths();
+    const idx = th.cellIndex;
+    let w = 40;
+    for (const row of $('table').rows) { const cell = row.cells[idx]; if (cell) w = Math.max(w, cell.scrollWidth + 2); }
+    state.colWidths[colKey(th)] = Math.min(w, 900);
+    applyColWidths();
+  }
+  $('table').tHead.addEventListener('dblclick', e => { const rz = e.target.closest('.rz'); if (rz) fitColumn(rz.parentElement); });
+  $('table').tHead.addEventListener('keydown', e => {
+    const rz = e.target.closest('.rz'); if (!rz) return;
+    const th = rz.parentElement, step = e.shiftKey ? 50 : 10;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault(); captureColWidths();
+      const k = colKey(th); state.colWidths[k] = Math.max(40, state.colWidths[k] + (e.key === 'ArrowRight' ? step : -step)); applyColWidths();
+    } else if (e.key === 'Enter') { e.preventDefault(); fitColumn(th); }
+  });
+
+  // ---------- sort ----------
+  $('table').tHead.addEventListener('click', e => {
+    if (justResized || e.target.closest('.rz')) return;
+    const th = e.target.closest('th[data-col]'); if (!th) return;
+    const c = +th.dataset.col;
+    if (state.sortCol === c) { if (state.sortDir === 1) state.sortDir = -1; else { state.sortCol = -1; state.sortDir = 1; applyFilter(); return; } }
+    else { state.sortCol = c; state.sortDir = 1; }
+    applySort();
+  });
+
+  // ---------- cell selection and detail ----------
+  const activeTd = () => state.active && $('table').querySelector(`td[data-r="${state.active.r}"][data-c="${state.active.c}"]`);
+  function setActive(r, c, scroll) {
+    const old = activeTd(); if (old) old.classList.remove('active');
+    state.active = { r, c };
+    const td = activeTd(); if (!td) return;
+    td.classList.add('active');
+    if (scroll) td.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+  const cellValue = () => { const a = state.active; if (!a) return null; const row = state.filtered[state.page * pageSize() + a.r]; return row ? String(row[a.c]) : null; };
+  function openCell() {
+    const v = cellValue(); if (v == null) return;
+    const a = state.active;
+    $('cellhead').textContent = state.headers[a.c];
+    $('cellval').textContent = v;
+    $('cellmeta').textContent = `Row ${(state.page * pageSize() + a.r + 1).toLocaleString()} · ${v.length.toLocaleString()} characters`;
+    $('copied').hidden = true;
+    $('cell').showModal();
+  }
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; }
+    catch { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); return ok; }
+  }
+  $('table').tBodies[0].addEventListener('click', e => { const td = e.target.closest('td[data-r]'); if (td) setActive(+td.dataset.r, +td.dataset.c, false); });
+  $('table').tBodies[0].addEventListener('dblclick', e => { const td = e.target.closest('td[data-r]'); if (td) { setActive(+td.dataset.r, +td.dataset.c, false); openCell(); } });
+  $('cellcopy').onclick = async () => { if (await copyText($('cellval').textContent)) { $('copied').hidden = false; setTimeout(() => { $('copied').hidden = true; }, 1500); } };
+  $('cellclose').onclick = () => $('cell').close();
+  $('cell').addEventListener('click', e => { if (e.target === $('cell')) $('cell').close(); });   // Click on the backdrop closes the dialog.
+
+  const page = n => { const pc = pageCount(); const p = Math.max(0, Math.min(pc - 1, n)); if (p !== state.page) { state.page = p; render(); } };
+  $('tablewrap').addEventListener('keydown', e => {
+    if (e.target !== $('tablewrap')) return;   // Header buttons and resize handles have their own keys.
+    const cols = visibleCols(), rowsOnPage = $('table').tBodies[0].rows.length;
+    if (!rowsOnPage) return;
+    const a = state.active || { r: 0, c: cols[0] };
+    let ci = cols.indexOf(a.c), r = a.r, handled = true;
+    switch (e.key) {
+      case 'ArrowDown': r = Math.min(rowsOnPage - 1, r + 1); break;
+      case 'ArrowUp': r = Math.max(0, r - 1); break;
+      case 'ArrowRight': ci = Math.min(cols.length - 1, ci + 1); break;
+      case 'ArrowLeft': ci = Math.max(0, ci - 1); break;
+      case 'Home': if (e.ctrlKey) { page(0); return; } ci = 0; break;
+      case 'End': if (e.ctrlKey) { page(pageCount() - 1); return; } ci = cols.length - 1; break;
+      case 'PageDown': page(state.page + 1); return;
+      case 'PageUp': page(state.page - 1); return;
+      case 'Enter': if (state.active) openCell(); return;
+      case 'c': case 'C': if ((e.ctrlKey || e.metaKey) && state.active && !String(getSelection())) { copyText(cellValue()); return; } handled = false; break;
+      default: handled = false;
+    }
+    if (!handled) return;
+    e.preventDefault();
+    setActive(r, cols[ci], true);
+  });
+
   // ---------- events ----------
+  $('open').onclick = () => $('file').click();
   $('file').addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); e.target.value = ''; });
   $('urlform').addEventListener('submit', e => { e.preventDefault(); const u = $('url').value.trim(); if (u) loadUrl(u); });
+  $('alertclose').onclick = hideAlert;
 
   let dragDepth = 0;
   document.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; document.body.classList.add('dragging'); });
@@ -383,82 +664,42 @@
   });
 
   let searchTimer;
-  $('search').addEventListener('input', e => {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => { state.query = e.target.value.trim(); state.page = 0; applyFilter(); }, 120);
-  });
-  // ---------- column resize ----------
-  // state.colWidths holds one width per column, including the row-number column at index 0.
-  function applyColWidths() {
-    const table = $('table'), w = state.colWidths;
-    table.classList.toggle('resized', !!w);
-    table.querySelector('colgroup').innerHTML = w ? w.map(px => `<col style="width:${px}px">`).join('') : '';
-    table.style.width = w ? w.reduce((a, b) => a + b, 0) + 'px' : '';
-  }
-  const captureColWidths = () => { if (!state.colWidths) { state.colWidths = [...$('table').tHead.rows[0].cells].map(c => c.offsetWidth); applyColWidths(); } };
-  let justResized = false;
-  $('table').tHead.addEventListener('pointerdown', e => {
-    const rz = e.target.closest('.rz'); if (!rz || e.button !== 0) return;
-    e.preventDefault();
-    captureColWidths();
-    const idx = rz.parentElement.cellIndex, startX = e.clientX, startW = state.colWidths[idx];
-    const cols = $('table').querySelectorAll('col');
-    rz.classList.add('active'); document.body.classList.add('resizing'); rz.setPointerCapture(e.pointerId);
-    const move = ev => {
-      state.colWidths[idx] = Math.max(40, startW + ev.clientX - startX);
-      cols[idx].style.width = state.colWidths[idx] + 'px';
-      $('table').style.width = state.colWidths.reduce((a, b) => a + b, 0) + 'px';
-    };
-    const up = () => {
-      rz.removeEventListener('pointermove', move); rz.removeEventListener('pointerup', up); rz.removeEventListener('pointercancel', up);
-      rz.classList.remove('active'); document.body.classList.remove('resizing');
-      justResized = true; setTimeout(() => { justResized = false; }, 0);
-    };
-    rz.addEventListener('pointermove', move); rz.addEventListener('pointerup', up); rz.addEventListener('pointercancel', up);
-  });
-  // Double-click a handle: make the column as wide as its widest visible cell.
-  $('table').tHead.addEventListener('dblclick', e => {
-    const rz = e.target.closest('.rz'); if (!rz) return;
-    captureColWidths();
-    const idx = rz.parentElement.cellIndex;
-    let w = 40;
-    for (const row of $('table').rows) { const cell = row.cells[idx]; if (cell) w = Math.max(w, cell.scrollWidth + 2); }
-    state.colWidths[idx] = Math.min(w, 900);
-    applyColWidths();
-  });
-
-  $('table').tHead.addEventListener('click', e => {
-    if (justResized || e.target.closest('.rz')) return;
-    const th = e.target.closest('th[data-col]'); if (!th) return;
-    const c = +th.dataset.col;
-    if (state.sortCol === c) { if (state.sortDir === 1) state.sortDir = -1; else { state.sortCol = -1; state.sortDir = 1; applyFilter(); return; } }
-    else { state.sortCol = c; state.sortDir = 1; }
-    applySort();
-  });
+  function setQuery(q) { state.query = q.trim(); state.page = 0; state.active = null; $('clear').hidden = !q; applyFilter(); }
+  $('search').addEventListener('input', e => { clearTimeout(searchTimer); searchTimer = setTimeout(() => setQuery(e.target.value), 120); });
+  $('clear').onclick = () => { $('search').value = ''; setQuery(''); $('search').focus(); };
   $('sheet').addEventListener('change', e => selectSheet(e.target.value));
-  $('headerrow').addEventListener('change', buildFromRaw);
+  $('headerrow').addEventListener('change', () => { state.active = null; buildFromRaw(); });
   $('wrap').addEventListener('change', render);
-  $('pagesize').addEventListener('change', () => { state.page = 0; render(); });
-  $('first').onclick = () => { state.page = 0; render(); };
-  $('prev').onclick = () => { state.page--; render(); };
-  $('next').onclick = () => { state.page++; render(); };
-  $('last').onclick = () => { state.page = pageCount() - 1; render(); };
+  $('pagesize').addEventListener('change', () => { state.page = 0; state.active = null; render(); });
+  $('first').onclick = () => page(0);
+  $('prev').onclick = () => page(state.page - 1);
+  $('next').onclick = () => page(state.page + 1);
+  $('last').onclick = () => page(pageCount() - 1);
   $('reset').onclick = () => {
-    newLoad();   // Ignore loads that are still in progress.
-    state.raw = []; state.rows = []; state.filtered = []; state.workbook = null;   // Free the memory.
-    $('table').tHead.innerHTML = ''; $('table').tBodies[0].innerHTML = '';
-    $('view').style.display = 'none'; $('drop').style.display = ''; document.title = 'Table Viewer'; setStatus('');
+    loadSeq++;   // Ignore loads that are still in progress.
+    state.raw = []; state.rows = []; state.filtered = []; state.workbook = null; state.active = null;   // Free the memory.
+    $('table').tHead.innerHTML = ''; $('table').tBodies[0].innerHTML = ''; $('table').querySelector('colgroup').innerHTML = '';
+    $('view').style.display = 'none'; $('drop').style.display = ''; document.title = 'Table Viewer';
+    $('filename').textContent = ''; setStatus(''); setBusy(false); hideAlert();
   };
   $('download').onclick = () => {
-    const csv = Papa.unparse({ fields: state.headers, data: state.filtered });
+    const cols = visibleCols();
+    const csv = Papa.unparse({ fields: cols.map(i => state.headers[i]), data: state.filtered.map(r => cols.map(i => r[i])) });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     a.download = (state.name.replace(/\.[^.]+$/, '') || 'table') + (state.query ? '-filtered' : '') + '.csv';
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 10000);   // Some browsers start the download later.
   };
+
   document.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'f' && $('view').style.display === 'flex') { e.preventDefault(); $('search').focus(); $('search').select(); }
+    const viewOpen = $('view').style.display === 'flex';
+    const inField = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f' && viewOpen) { e.preventDefault(); $('search').focus(); $('search').select(); return; }
+    if (e.key === 'Escape' && document.activeElement === $('search') && $('search').value) { $('search').value = ''; setQuery(''); return; }
+    if (!viewOpen || inField || $('cell').open) return;
+    if (e.key === ']' || e.key === 'PageDown') { e.preventDefault(); page(state.page + 1); }
+    else if (e.key === '[' || e.key === 'PageUp') { e.preventDefault(); page(state.page - 1); }
   });
 
   // If the page URL has ?url=..., load that link when the page opens.

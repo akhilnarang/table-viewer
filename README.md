@@ -40,10 +40,19 @@ the user to download the file and drop it on the page.
 - Link types: direct file links, Google Sheets share links (the sheet must be public or published to the web),
   GitHub blob links, and Dropbox share links. You can also open `/?url=<link>` to load a link.
 - A workbook with more than one sheet gets a sheet selector.
-- Search finds text in all columns. Matches are highlighted. Ctrl+F moves the cursor to the search box.
-- Click a column header to sort. Click again to reverse the order. Click a third time to remove the sort.
+- Search finds text in all visible columns. Matches are highlighted. Ctrl+F moves the cursor to the search box.
+  Esc clears the search.
+- Click a column name to sort. Click again to reverse the order. Click a third time to remove the sort.
   Number columns sort as numbers. This includes values such as `$1,234` and `12%`. Empty cells go last.
+- Drag the right edge of a column name to change the width. Double-click the edge to fit the content.
+  The edge is a keyboard control: Tab to it and use the arrow keys.
+- The "Columns" menu shows or hides columns.
+- Click a cell to select it. Double-click it, or press Enter, to see the full value and copy it.
+  The arrow keys move between cells. PageDown and PageUp change the page.
+- The row numbers stay in view when the table scrolls sideways.
 - The "Header row" box selects the row that contains the column names. If the first row only contains
   `1, 2, 3, ...`, the page uses the next row.
 - The page shows 50 to 5000 rows at a time. You can turn on text wrap.
-  You can download the rows that are shown as a CSV file.
+  You can download all filtered rows and visible columns as a CSV file.
+- A progress bar shows while a file loads. Errors and warnings show in a banner that you can dismiss.
+- The page works with a keyboard and a screen reader. Controls have names, and the sort state is announced.
