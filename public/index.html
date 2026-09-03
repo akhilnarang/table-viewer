@@ -59,6 +59,12 @@
   tbody tr:nth-child(even) td { background: var(--stripe); }
   tbody tr:hover td { background: var(--hover); }
   td.wrap { white-space: pre-wrap; max-width: none; }
+  /* Column resize. After the first drag, the table uses fixed widths from state.colWidths. */
+  table.resized { table-layout: fixed; min-width: 0; }
+  table.resized th, table.resized td { max-width: none; }
+  th .rz { position: absolute; top: 0; right: -4px; width: 9px; height: 100%; cursor: col-resize; z-index: 2; }
+  th .rz:hover, th .rz.active { background: var(--accent); opacity: .6; }
+  body.resizing, body.resizing * { cursor: col-resize !important; user-select: none; }
   mark { background: #fde68a; color: #1c1f24; padding: 0; border-radius: 2px; }
   .pager { display: flex; gap: 6px; align-items: center; padding: 8px 16px; border-top: 1px solid var(--border); background: var(--panel); flex-wrap: wrap; }
   .pager button:disabled { opacity: .4; cursor: default; }
@@ -93,7 +99,7 @@
     <button id="download" title="Download the rows that are shown, in the current order, as a CSV file">Download CSV</button>
     <button id="reset">Close</button>
   </div>
-  <div class="tablewrap"><table id="table"><thead></thead><tbody></tbody></table></div>
+  <div class="tablewrap"><table id="table"><colgroup></colgroup><thead></thead><tbody></tbody></table></div>
   <div class="pager">
     <button id="first">&laquo;</button><button id="prev">&lsaquo;</button>
     <span id="pageinfo"></span>
@@ -261,7 +267,7 @@
     const first = raw[0].map(c => String(c).trim());
     const isNumbering = first.length > 1 && first.every((c, i) => c === String(i + 1));
     $('headerrow').value = isNumbering && raw.length > 1 ? 2 : 1;
-    state.sortCol = -1; state.sortDir = 1; state.page = 0; state.query = ''; $('search').value = '';
+    state.sortCol = -1; state.sortDir = 1; state.page = 0; state.query = ''; state.colWidths = null; $('search').value = '';
     document.title = `${name} – Table Viewer`;
     $('drop').style.display = 'none'; $('view').style.display = 'flex';
     setStatus(name);
@@ -334,7 +340,8 @@
   function render() {
     const thead = $('table').tHead, tbody = $('table').tBodies[0];
     thead.innerHTML = '<tr><th class="rownum">#</th>' + state.headers.map((h, i) =>
-      `<th data-col="${i}" class="${state.numeric[i] ? 'num' : ''}" title="Sort by ${escapeHtml(h)}">${escapeHtml(h)}${state.sortCol === i ? `<span class="dir">${state.sortDir > 0 ? '▲' : '▼'}</span>` : ''}</th>`).join('') + '</tr>';
+      `<th data-col="${i}" class="${state.numeric[i] ? 'num' : ''}" title="Sort by ${escapeHtml(h)}">${escapeHtml(h)}${state.sortCol === i ? `<span class="dir">${state.sortDir > 0 ? '▲' : '▼'}</span>` : ''}<span class="rz" title="Drag to resize. Double-click to fit."></span></th>`).join('') + '</tr>';
+    applyColWidths();
 
     const size = pageSize(), start = state.page * size, slice = state.filtered.slice(start, start + size);
     const wrap = $('wrap').checked ? ' wrap' : '';
@@ -380,7 +387,48 @@
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => { state.query = e.target.value.trim(); state.page = 0; applyFilter(); }, 120);
   });
+  // ---------- column resize ----------
+  // state.colWidths holds one width per column, including the row-number column at index 0.
+  function applyColWidths() {
+    const table = $('table'), w = state.colWidths;
+    table.classList.toggle('resized', !!w);
+    table.querySelector('colgroup').innerHTML = w ? w.map(px => `<col style="width:${px}px">`).join('') : '';
+    table.style.width = w ? w.reduce((a, b) => a + b, 0) + 'px' : '';
+  }
+  const captureColWidths = () => { if (!state.colWidths) { state.colWidths = [...$('table').tHead.rows[0].cells].map(c => c.offsetWidth); applyColWidths(); } };
+  let justResized = false;
+  $('table').tHead.addEventListener('pointerdown', e => {
+    const rz = e.target.closest('.rz'); if (!rz || e.button !== 0) return;
+    e.preventDefault();
+    captureColWidths();
+    const idx = rz.parentElement.cellIndex, startX = e.clientX, startW = state.colWidths[idx];
+    const cols = $('table').querySelectorAll('col');
+    rz.classList.add('active'); document.body.classList.add('resizing'); rz.setPointerCapture(e.pointerId);
+    const move = ev => {
+      state.colWidths[idx] = Math.max(40, startW + ev.clientX - startX);
+      cols[idx].style.width = state.colWidths[idx] + 'px';
+      $('table').style.width = state.colWidths.reduce((a, b) => a + b, 0) + 'px';
+    };
+    const up = () => {
+      rz.removeEventListener('pointermove', move); rz.removeEventListener('pointerup', up); rz.removeEventListener('pointercancel', up);
+      rz.classList.remove('active'); document.body.classList.remove('resizing');
+      justResized = true; setTimeout(() => { justResized = false; }, 0);
+    };
+    rz.addEventListener('pointermove', move); rz.addEventListener('pointerup', up); rz.addEventListener('pointercancel', up);
+  });
+  // Double-click a handle: make the column as wide as its widest visible cell.
+  $('table').tHead.addEventListener('dblclick', e => {
+    const rz = e.target.closest('.rz'); if (!rz) return;
+    captureColWidths();
+    const idx = rz.parentElement.cellIndex;
+    let w = 40;
+    for (const row of $('table').rows) { const cell = row.cells[idx]; if (cell) w = Math.max(w, cell.scrollWidth + 2); }
+    state.colWidths[idx] = Math.min(w, 900);
+    applyColWidths();
+  });
+
   $('table').tHead.addEventListener('click', e => {
+    if (justResized || e.target.closest('.rz')) return;
     const th = e.target.closest('th[data-col]'); if (!th) return;
     const c = +th.dataset.col;
     if (state.sortCol === c) { if (state.sortDir === 1) state.sortDir = -1; else { state.sortCol = -1; state.sortDir = 1; applyFilter(); return; } }
