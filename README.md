@@ -3,15 +3,22 @@
 Drop a spreadsheet on the page, or paste a link. The page shows the data as a table.
 You can search and sort the table.
 
-The app is one static `index.html` file. The browser does all the work. The app does not upload your data.
+The app is one static file, `public/index.html`. The browser does all the work. The app does not upload your data.
 
 ## Deploy
 
-**Cloudflare Pages:** Connect a Pages project to this repository. Do not set a build command.
-Set the output directory to `/`. Pages finds `functions/proxy.js` and deploys it as a Pages Function.
+The repository works as a Cloudflare Worker or as a Cloudflare Pages project.
 
-**Local test:** Run `npx wrangler pages dev .` to test with the Pages Function.
-Or run `python3 -m http.server` to test without it. You can also open `index.html` in a browser.
+**Worker (recommended):** In the Cloudflare dashboard, go to Workers & Pages, then Create, then
+connect this repository. Do not set a build command. The deploy command is `npx wrangler deploy`.
+The settings come from `wrangler.jsonc`. The Worker serves the `public/` directory and the `/proxy` path.
+To deploy from your computer, run `npx wrangler deploy`.
+
+**Pages:** Create a Pages project from this repository. Do not set a build command.
+Set the output directory to `public`. Pages finds `functions/proxy.js` and deploys it as a Pages Function.
+
+**Local test:** Run `npx wrangler dev` for the Worker, or `npx wrangler pages dev public` for Pages.
+You can also open `public/index.html` in a browser. Then pasted links work only for sites that send CORS headers.
 
 ## Links and CORS
 
@@ -20,10 +27,11 @@ Examples: published Google Sheets, GitHub raw and blob links, Dropbox share link
 
 Some sites do not send CORS headers. Many government and company download pages are examples.
 A browser cannot read files from these sites. For these links, the page uses `/proxy?url=...`.
-The Pages Function in `functions/proxy.js` serves this path. It accepts requests from this site only.
+The code in `src/proxy.js` serves this path. It accepts requests from this site only.
+It sends all data as a download, never as a page. It stops after 100 MB.
 
-If you do not want the function, delete the file. The page then tells the user to download the file
-and drop it on the page.
+If you do not want the proxy, delete `src/`, `functions/`, and `wrangler.jsonc`. The page then tells
+the user to download the file and drop it on the page.
 
 ## Features
 
