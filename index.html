@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Table Viewer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='2' width='14' height='12' rx='2' fill='%232563eb'/%3E%3Cpath d='M1 6h14M1 10h14M6 2v12M11 2v12' stroke='white'/%3E%3C/svg%3E">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js" integrity="sha384-D/t0ZMqQW31H3az8ktEiNb39wyKnS82iFY52QPACM+IjKW3jDUhyIgh2PApRqJZs" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --border: #d9dde3; --text: #1c1f24; --muted: #6b7280;
+    --accent: #2563eb; --accent-bg: #eaf1ff; --stripe: #f9fafb; --hover: #eef2f7; --danger: #b91c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --panel: #181c22; --border: #2c323b; --text: #e6e8eb; --muted: #9aa3ad;
+      --accent: #60a5fa; --accent-bg: #1e2a3f; --stripe: #1b2027; --hover: #232a33; --danger: #f87171;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text); display: flex; flex-direction: column;
+  }
+  header { padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--panel); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; }
+  input[type=text], select { font: inherit; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+  input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button { font: inherit; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); cursor: pointer; }
+  button:hover { background: var(--hover); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .url-form { display: flex; gap: 6px; flex: 1; min-width: 280px; }
+  .url-form input { flex: 1; }
+  .muted { color: var(--muted); }
+  .error { color: var(--danger); }
+
+  #drop {
+    flex: 1; margin: 24px; border: 2px dashed var(--border); border-radius: 12px; display: flex;
+    flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); text-align: center; padding: 24px;
+  }
+  #drop.over, body.dragging #drop { border-color: var(--accent); background: var(--accent-bg); color: var(--text); }
+  #drop strong { font-size: 18px; color: var(--text); }
+  #drop label { color: var(--accent); cursor: pointer; text-decoration: underline; }
+
+  #view { display: none; flex: 1; flex-direction: column; min-height: 0; }
+  .toolbar { padding: 8px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border-bottom: 1px solid var(--border); background: var(--panel); }
+  .toolbar input[type=text] { min-width: 240px; }
+  .spacer { flex: 1; }
+  .tablewrap { flex: 1; overflow: auto; min-height: 0; }
+  table { border-collapse: separate; border-spacing: 0; min-width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { padding: 6px 10px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); white-space: nowrap; max-width: 480px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+  th { position: sticky; top: 0; background: var(--panel); cursor: pointer; user-select: none; z-index: 1; font-weight: 600; }
+  th:hover { background: var(--hover); }
+  th .dir { color: var(--accent); margin-left: 4px; font-size: 11px; }
+  th.num, td.num { text-align: right; }
+  td.rownum, th.rownum { color: var(--muted); text-align: right; background: var(--stripe); cursor: default; font-weight: normal; }
+  tbody tr:nth-child(even) td { background: var(--stripe); }
+  tbody tr:hover td { background: var(--hover); }
+  td.wrap { white-space: pre-wrap; max-width: none; }
+  mark { background: #fde68a; color: #1c1f24; padding: 0; border-radius: 2px; }
+  .pager { display: flex; gap: 6px; align-items: center; padding: 8px 16px; border-top: 1px solid var(--border); background: var(--panel); flex-wrap: wrap; }
+  .pager button:disabled { opacity: .4; cursor: default; }
+  #status { padding: 0 16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Table Viewer</h1>
+  <label><input type="file" id="file" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.ods,.json" hidden><button type="button" onclick="document.getElementById('file').click()">Open file</button></label>
+  <form class="url-form" id="urlform">
+    <input type="text" id="url" placeholder="Paste a link to a CSV file, an Excel file, or a Google Sheet" autocomplete="off">
+    <button class="primary" type="submit">Load</button>
+  </form>
+  <span id="status" class="muted"></span>
+</header>
+
+<div id="drop">
+  <strong>Drop a file here</strong>
+  <span>CSV, TSV, Excel (.xlsx, .xls), ODS, or JSON. Or <label for="file">select a file</label>. Or paste a link above.</span>
+  <span class="muted">You can also paste CSV text on this page with Ctrl+V.</span>
+</div>
+
+<div id="view">
+  <div class="toolbar">
+    <input type="text" id="search" placeholder="Search all columns…" autocomplete="off">
+    <select id="sheet" title="Sheet" style="display:none"></select>
+    <label title="The row that contains the column names. Use 0 if there is no header row.">Header row <input type="number" id="headerrow" min="0" value="1" style="width:56px;font:inherit;padding:5px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text)"></label>
+    <label><input type="checkbox" id="wrap"> Wrap text</label>
+    <span class="spacer"></span>
+    <span id="count" class="muted"></span>
+    <button id="download" title="Download the rows that are shown, in the current order, as a CSV file">Download CSV</button>
+    <button id="reset">Close</button>
+  </div>
+  <div class="tablewrap"><table id="table"><thead></thead><tbody></tbody></table></div>
+  <div class="pager">
+    <button id="first">&laquo;</button><button id="prev">&lsaquo;</button>
+    <span id="pageinfo"></span>
+    <button id="next">&rsaquo;</button><button id="last">&raquo;</button>
+    <span class="spacer"></span>
+    <label>Rows per page
+      <select id="pagesize"><option>50</option><option selected>100</option><option>250</option><option>500</option><option>1000</option><option>5000</option></select>
+    </label>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const state = { workbook: null, name: '', headers: [], rows: [], filtered: [], sortCol: -1, sortDir: 1, page: 0, query: '', numeric: [] };
+
+  // ---------- status ----------
+  const setStatus = (msg, isError) => { const s = $('status'); s.textContent = msg || ''; s.className = isError ? 'error' : 'muted'; };
+
+  // ---------- loading ----------
+  // Each load gets a number. A load that finishes after a newer load started is ignored.
+  let loadSeq = 0;
+  const newLoad = () => ++loadSeq;
+  const isStale = id => id !== loadSeq;
+
+  function loadFile(file) {
+    const id = newLoad();
+    setStatus(`Reading ${file.name}…`);
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    const reader = new FileReader();
+    reader.onerror = () => setStatus('Cannot read the file', true);
+    if (['xlsx', 'xlsm', 'xls', 'ods', 'xlsb'].includes(ext)) {
+      reader.onload = e => { if (!isStale(id)) loadWorkbook(new Uint8Array(e.target.result), file.name); };
+      reader.readAsArrayBuffer(file);
+    } else if (ext === 'json') {
+      reader.onload = e => { if (!isStale(id)) loadJSON(e.target.result, file.name); };
+      reader.readAsText(file);
+    } else {
+      loadCSV(file, file.name, id);
+    }
+  }
+
+  // input is a File or a string. The parser runs in a web worker, so the page does not freeze on large files.
+  function loadCSV(input, name, id = newLoad()) {
+    if (typeof input === 'string') input = input.replace(/^\uFEFF/, '');
+    Papa.parse(input, {
+      worker: true, skipEmptyLines: 'greedy',
+      complete: res => {
+        if (isStale(id)) return;
+        if (!res.data.length) return setStatus('No rows found', true);
+        setData(name, res.data);
+        const bad = res.errors.filter(e => e.code !== 'UndetectableDelimiter').length;
+        if (bad) setStatus(`${name} · ${bad} rows have problems (bad quotes or a wrong number of fields)`);
+      },
+      error: err => setStatus(`Cannot parse the file: ${err.message || err}`, true),
+    });
+  }
+
+  function loadJSON(text, name) {
+    let data;
+    try { data = JSON.parse(text); } catch (e) { return setStatus('The JSON is not valid: ' + e.message, true); }
+    if (!data || typeof data !== 'object') return setStatus('The JSON must be an array or an object', true);
+    if (!Array.isArray(data)) { const k = Object.keys(data).find(k => Array.isArray(data[k])); data = k ? data[k] : [data]; }
+    if (!data.length) return setStatus('No rows found', true);
+    if (Array.isArray(data[0])) return setData(name, data);
+    const headers = [...new Set(data.flatMap(r => Object.keys(r)))];
+    setData(name, [headers, ...data.map(r => headers.map(h => { const v = r[h]; return v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : v; }))]);
+  }
+
+  function loadWorkbook(bytes, name) {
+    let wb;
+    try { wb = XLSX.read(bytes, { type: 'array' }); } catch (e) { return setStatus(`Cannot read the workbook: ${e.message}`, true); }
+    state.workbook = wb;
+    const sel = $('sheet');
+    sel.innerHTML = '';
+    wb.SheetNames.forEach(n => { const o = document.createElement('option'); o.textContent = n; sel.appendChild(o); });
+    sel.style.display = wb.SheetNames.length > 1 ? '' : 'none';
+    state.name = name;
+    selectSheet(wb.SheetNames[0]);
+  }
+
+  function selectSheet(sheetName) {
+    const ws = state.workbook.Sheets[sheetName];
+    const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' }).filter(r => r.some(c => c !== ''));
+    if (!aoa.length) return setStatus(`Sheet "${sheetName}" is empty`, true);
+    setData(state.name, aoa, true);
+  }
+
+  // ---------- URL loading ----------
+  function normalizeUrl(u) {
+    u = u.trim();
+    const g = u.match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    if (g) {
+      const gid = (u.match(/[#&?]gid=(\d+)/) || [])[1];
+      return gid ? `https://docs.google.com/spreadsheets/d/${g[1]}/export?format=csv&gid=${gid}`
+                 : `https://docs.google.com/spreadsheets/d/${g[1]}/export?format=xlsx`;
+    }
+    const gh = u.match(/^https?:\/\/github\.com\/([^/]+\/[^/]+)\/blob\/(.+)$/);
+    if (gh) return `https://raw.githubusercontent.com/${gh[1]}/${gh[2]}`;
+    const dbx = u.match(/^https?:\/\/(www\.)?dropbox\.com\/(.+)$/);
+    if (dbx) return u.replace(/[?&]dl=0/, '').replace(/dropbox\.com/, 'dl.dropboxusercontent.com');
+    return u;
+  }
+
+  // First, get the file directly from the browser. If the remote site blocks cross-origin
+  // requests, use the optional /proxy Pages Function (functions/proxy.js). If the function
+  // is not deployed, show a message to the user.
+  async function fetchBytes(url) {
+    let directErr;
+    try {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return { buf: await r.arrayBuffer(), type: r.headers.get('content-type') || '', finalUrl: url };
+    } catch (e) { directErr = e; }
+
+    const corsBlocked = directErr instanceof TypeError; // A TypeError is a network or CORS failure, not an HTTP error.
+    if (!corsBlocked) throw directErr;
+    if (location.protocol.startsWith('http')) {
+      try {
+        const r = await fetch(`/proxy?url=${encodeURIComponent(url)}`);
+        // The function is present only if it sends X-Upstream-Type. A missing function gives a 404 or an HTML page.
+        const upstreamType = r.headers.get('x-upstream-type');
+        if (r.ok && upstreamType != null) {
+          return { buf: await r.arrayBuffer(), type: upstreamType, finalUrl: r.headers.get('x-final-url') || url };
+        }
+        if (r.status !== 404 && !/text\/html/i.test(r.headers.get('content-type') || '')) throw new Error(`proxy: ${await r.text()}`);
+      } catch (e) { if (!(e instanceof TypeError)) throw e; }
+    }
+    throw new Error('the site does not permit browser access to this file (CORS). Download the file and drop it here.');
+  }
+
+  async function loadUrl(raw) {
+    const id = newLoad();
+    const url = normalizeUrl(raw);
+    setStatus('Fetching…');
+    try {
+      const { buf, type, finalUrl } = await fetchBytes(url);
+      if (isStale(id)) return;
+      const name = decodeURIComponent((finalUrl.split('?')[0].split('/').pop() || 'download'));
+      const head = new Uint8Array(buf.slice(0, 4));
+      const isZip = head[0] === 0x50 && head[1] === 0x4B;                // xlsx and ods files are zip files
+      const isOle = head[0] === 0xD0 && head[1] === 0xCF;                // old xls files
+      if (isZip || isOle || /spreadsheet|excel|\.xls/i.test(type + name)) {
+        loadWorkbook(new Uint8Array(buf), name);
+      } else {
+        // Use the byte order mark to detect UTF-16. Otherwise, assume UTF-8.
+        const enc = head[0] === 0xFF && head[1] === 0xFE ? 'utf-16le' : head[0] === 0xFE && head[1] === 0xFF ? 'utf-16be' : 'utf-8';
+        const text = new TextDecoder(enc).decode(buf);
+        if (/^\s*[\[{]/.test(text) && (/json/.test(type) || /\.json$/i.test(name))) loadJSON(text, name);
+        else if (/<html/i.test(text.slice(0, 500))) throw new Error('the link returned a web page, not a data file. Make sure the file is public.');
+        else loadCSV(text, name);
+      }
+    } catch (e) {
+      setStatus(`Cannot load the link: ${e.message}`, true);
+    }
+  }
+
+  // ---------- data / render ----------
+  // raw is an array of rows. It includes the header row. The "Header row" box selects the row that has the column names.
+  function setData(name, raw, keepSheetSelect) {
+    if (!keepSheetSelect) { state.workbook = null; $('sheet').style.display = 'none'; }
+    state.name = name; state.raw = raw;
+    // Some exported reports start with a row that only contains 1, 2, 3, and so on.
+    // In that case, the column names are in the next row.
+    const first = raw[0].map(c => String(c).trim());
+    const isNumbering = first.length > 1 && first.every((c, i) => c === String(i + 1));
+    $('headerrow').value = isNumbering && raw.length > 1 ? 2 : 1;
+    state.sortCol = -1; state.sortDir = 1; state.page = 0; state.query = ''; $('search').value = '';
+    document.title = `${name} – Table Viewer`;
+    $('drop').style.display = 'none'; $('view').style.display = 'flex';
+    setStatus(name);
+    buildFromRaw();
+  }
+
+  function buildFromRaw() {
+    const raw = state.raw;
+    const width = raw.reduce((m, r) => Math.max(m, r.length), 0);
+    const hr = Math.min(Math.max(parseInt($('headerrow').value, 10) || 0, 0), raw.length);
+    $('headerrow').value = hr;
+    const headers = Array.from({ length: width }, (_, i) => hr ? ((raw[hr - 1][i] ?? '').toString().trim() || `Column ${i + 1}`) : `Column ${i + 1}`);
+    state.headers = headers;
+    const rows = raw.slice(hr);
+    state.rows = rows.map(r => headers.map((_, i) => r[i] == null ? '' : r[i]));
+    // Look at a sample of rows to decide if a column contains numbers.
+    const sample = state.rows.length > 2000 ? state.rows.filter((_, i) => i % Math.ceil(state.rows.length / 2000) === 0) : state.rows;
+    state.numeric = headers.map((_, c) => {
+      let n = 0, total = 0;
+      for (const r of sample) { const v = String(r[c]).trim(); if (v === '') continue; total++; if (isNumberLike(v)) n++; }
+      return total > 0 && n / total > 0.9;
+    });
+    state.sortCol = -1; state.sortDir = 1; state.page = 0;
+    applyFilter();
+  }
+
+  const isNumberLike = v => /^-?[$€£]?\s*[\d,]*\.?\d+\s*%?$/.test(v);
+  const toNumber = v => { const s = String(v).replace(/[$€£,%\s]/g, ''); const n = parseFloat(s); return isNaN(n) ? null : n; };
+
+  function applyFilter() {
+    const q = state.query.toLowerCase();
+    state.filtered = q ? state.rows.filter(r => r.some(c => String(c).toLowerCase().includes(q))) : state.rows.slice();
+    applySort();
+  }
+
+  function applySort() {
+    const c = state.sortCol, d = state.sortDir;
+    if (c >= 0) {
+      const num = state.numeric[c];
+      const coll = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+      // Compute the sort key for each row once, then sort. This is much faster than parsing in the comparator.
+      const keyed = state.filtered.map(r => {
+        const s = String(r[c]).trim();
+        const n = num && s !== '' ? toNumber(s) : null;
+        return { r, s, n, empty: s === '' };
+      });
+      keyed.sort((a, b) => {
+        if (a.empty || b.empty) return a.empty && b.empty ? 0 : a.empty ? 1 : -1;   // Empty cells go last in both sort directions.
+        if (a.n != null && b.n != null) return (a.n - b.n) * d;
+        return coll.compare(a.s, b.s) * d;
+      });
+      state.filtered = keyed.map(k => k.r);
+    }
+    state.page = Math.min(state.page, Math.max(0, pageCount() - 1));
+    render();
+  }
+
+  const pageSize = () => parseInt($('pagesize').value, 10) || state.filtered.length || 1;
+  const pageCount = () => Math.max(1, Math.ceil(state.filtered.length / pageSize()));
+
+  function highlight(text) {
+    const s = String(text);
+    if (!state.query) return escapeHtml(s);
+    return s.split(queryRegex()).map((part, i) => i % 2 ? `<mark>${escapeHtml(part)}</mark>` : escapeHtml(part)).join('');
+  }
+  // A regex that matches the search text. The capture group keeps the matches in split().
+  const queryRegex = () => new RegExp(`(${state.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  const escapeHtml = s => s.replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+
+  function render() {
+    const thead = $('table').tHead, tbody = $('table').tBodies[0];
+    thead.innerHTML = '<tr><th class="rownum">#</th>' + state.headers.map((h, i) =>
+      `<th data-col="${i}" class="${state.numeric[i] ? 'num' : ''}" title="Sort by ${escapeHtml(h)}">${escapeHtml(h)}${state.sortCol === i ? `<span class="dir">${state.sortDir > 0 ? '▲' : '▼'}</span>` : ''}</th>`).join('') + '</tr>';
+
+    const size = pageSize(), start = state.page * size, slice = state.filtered.slice(start, start + size);
+    const wrap = $('wrap').checked ? ' wrap' : '';
+    tbody.innerHTML = slice.map((r, i) =>
+      `<tr><td class="rownum">${start + i + 1}</td>` + r.map((c, ci) => `<td class="${state.numeric[ci] ? 'num' : ''}${wrap}" title="${escapeHtml(String(c))}">${highlight(c)}</td>`).join('') + '</tr>').join('');
+
+    const total = state.rows.length, shown = state.filtered.length;
+    $('count').textContent = (shown === total ? `${total.toLocaleString()} rows` : `${shown.toLocaleString()} of ${total.toLocaleString()} rows`) + ` · ${state.headers.length} columns`;
+    const pc = pageCount();
+    $('pageinfo').textContent = shown ? `${(start + 1).toLocaleString()}–${Math.min(start + size, shown).toLocaleString()} (page ${state.page + 1} of ${pc})` : 'No matching rows';
+    $('first').disabled = $('prev').disabled = state.page === 0;
+    $('next').disabled = $('last').disabled = state.page >= pc - 1;
+  }
+
+  // ---------- events ----------
+  $('file').addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); e.target.value = ''; });
+  $('urlform').addEventListener('submit', e => { e.preventDefault(); const u = $('url').value.trim(); if (u) loadUrl(u); });
+
+  let dragDepth = 0;
+  document.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; document.body.classList.add('dragging'); });
+  document.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dragging'); } });
+  document.addEventListener('dragover', e => e.preventDefault());
+  document.addEventListener('drop', e => {
+    e.preventDefault(); dragDepth = 0; document.body.classList.remove('dragging');
+    const f = e.dataTransfer.files[0];
+    if (f) return loadFile(f);
+    const link = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
+    if (link && /^https?:\/\//.test(link.trim())) { $('url').value = link.trim(); loadUrl(link); }
+  });
+
+  document.addEventListener('paste', e => {
+    if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+    const f = [...(e.clipboardData.files || [])][0];
+    if (f) return loadFile(f);
+    const text = e.clipboardData.getData('text/plain');
+    if (!text) return;
+    if (/^https?:\/\/\S+$/.test(text.trim())) { $('url').value = text.trim(); return loadUrl(text); }
+    if (text.includes('\n') || text.includes(',') || text.includes('\t')) loadCSV(text, 'pasted data');
+  });
+
+  let searchTimer;
+  $('search').addEventListener('input', e => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => { state.query = e.target.value.trim(); state.page = 0; applyFilter(); }, 120);
+  });
+  $('table').tHead.addEventListener('click', e => {
+    const th = e.target.closest('th[data-col]'); if (!th) return;
+    const c = +th.dataset.col;
+    if (state.sortCol === c) { if (state.sortDir === 1) state.sortDir = -1; else { state.sortCol = -1; state.sortDir = 1; applyFilter(); return; } }
+    else { state.sortCol = c; state.sortDir = 1; }
+    applySort();
+  });
+  $('sheet').addEventListener('change', e => selectSheet(e.target.value));
+  $('headerrow').addEventListener('change', buildFromRaw);
+  $('wrap').addEventListener('change', render);
+  $('pagesize').addEventListener('change', () => { state.page = 0; render(); });
+  $('first').onclick = () => { state.page = 0; render(); };
+  $('prev').onclick = () => { state.page--; render(); };
+  $('next').onclick = () => { state.page++; render(); };
+  $('last').onclick = () => { state.page = pageCount() - 1; render(); };
+  $('reset').onclick = () => {
+    newLoad();   // Ignore loads that are still in progress.
+    state.raw = []; state.rows = []; state.filtered = []; state.workbook = null;   // Free the memory.
+    $('table').tHead.innerHTML = ''; $('table').tBodies[0].innerHTML = '';
+    $('view').style.display = 'none'; $('drop').style.display = ''; document.title = 'Table Viewer'; setStatus('');
+  };
+  $('download').onclick = () => {
+    const csv = Papa.unparse({ fields: state.headers, data: state.filtered });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = (state.name.replace(/\.[^.]+$/, '') || 'table') + (state.query ? '-filtered' : '') + '.csv';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);   // Some browsers start the download later.
+  };
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f' && $('view').style.display === 'flex') { e.preventDefault(); $('search').focus(); $('search').select(); }
+  });
+
+  // If the page URL has ?url=..., load that link when the page opens.
+  const initial = new URLSearchParams(location.search).get('url');
+  if (initial) { $('url').value = initial; loadUrl(initial); }
+})();
+</script>
+</body>
+</html>
