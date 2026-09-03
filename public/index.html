@@ -89,7 +89,8 @@
   .menu-body .row { display: flex; gap: 6px; margin-bottom: 6px; }
   .menu-body .row button { flex: 1; padding: 4px 8px; min-height: 0; }
 
-  .tablewrap { flex: 1; overflow: auto; min-height: 0; outline-offset: -2px; }
+  .tablewrap { flex: 1; overflow: auto; min-height: 0; }
+  #table:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   table { border-collapse: separate; border-spacing: 0; min-width: 100%; font-variant-numeric: tabular-nums; }
   th, td { padding: 6px 10px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); white-space: nowrap; max-width: 480px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
   th { position: sticky; top: 0; background: var(--panel); user-select: none; z-index: 1; font-weight: 600; padding: 0; }
@@ -136,6 +137,7 @@
     .url-form { flex-basis: 100%; }
     #filename { max-width: 100%; flex-basis: 100%; }
     .toolbar, .pager { padding: 8px 12px; gap: 8px; }
+    .toolbar .group { flex-wrap: wrap; flex-basis: 100%; }
     .searchbox { flex-basis: 100%; }
     .searchbox input { width: 100%; min-width: 0; }
     button, .menu summary, input[type=text], select { min-height: 40px; }
@@ -202,13 +204,13 @@
     <button id="download" title="Download all filtered rows and visible columns as a CSV file">Download CSV</button>
     <button id="reset" class="ghost">Close</button>
   </div>
-  <div class="tablewrap" id="tablewrap" tabindex="0" role="region" aria-label="Data table. Use the arrow keys to move between cells.">
-    <table id="table" role="grid" aria-label="Data"><colgroup></colgroup><thead></thead><tbody></tbody></table>
+  <div class="tablewrap" id="tablewrap">
+    <table id="table" role="grid" tabindex="0" aria-label="Data table. Use the arrow keys to move between cells."><colgroup></colgroup><thead></thead><tbody></tbody></table>
   </div>
   <div class="pager">
-    <button id="first" aria-label="First page" title="First page (Home)">&laquo;</button><button id="prev" aria-label="Previous page" title="Previous page (PageUp or [)">&lsaquo;</button>
+    <button id="first" aria-label="First page" title="First page (Ctrl+Home in the table)">&laquo;</button><button id="prev" aria-label="Previous page" title="Previous page (PageUp or [)">&lsaquo;</button>
     <span id="pageinfo" aria-live="polite"></span>
-    <button id="next" aria-label="Next page" title="Next page (PageDown or ])">&rsaquo;</button><button id="last" aria-label="Last page" title="Last page (End)">&raquo;</button>
+    <button id="next" aria-label="Next page" title="Next page (PageDown or ])">&rsaquo;</button><button id="last" aria-label="Last page" title="Last page (Ctrl+End in the table)">&raquo;</button>
     <span class="spacer"></span>
     <label><span>Rows per page</span>
       <select id="pagesize" aria-label="Rows per page"><option>50</option><option selected>100</option><option>250</option><option>500</option><option>1000</option><option>5000</option></select>
@@ -219,7 +221,7 @@
 <dialog id="cell" aria-labelledby="cellhead">
   <div class="dhead"><h2 id="cellhead"></h2><button type="button" id="cellcopy">Copy</button><button type="button" id="cellclose" class="ghost" aria-label="Close">&times;</button></div>
   <pre id="cellval" tabindex="0" aria-label="Cell value"></pre>
-  <div class="dfoot"><span id="cellmeta"></span><span class="spacer"></span><span id="copied" hidden>Copied</span></div>
+  <div class="dfoot"><span id="cellmeta"></span><span class="spacer"></span><span id="copied" role="status" aria-live="polite" hidden>Copied</span></div>
 </dialog>
 
 <script>
@@ -229,7 +231,8 @@
 
   // ---------- status, progress, alerts ----------
   const setStatus = msg => { $('status').textContent = msg || ''; };
-  const setBusy = on => { $('progress').hidden = !on; document.body.setAttribute('aria-busy', on ? 'true' : 'false'); };   // The status text announces the load. The bar is visual only.
+  // The status text announces the load. The bar is visual only. aria-busy goes on the table area, not the body, so the status text is still read.
+  const setBusy = on => { $('progress').hidden = !on; $('tablewrap').setAttribute('aria-busy', on ? 'true' : 'false'); };
   function showAlert(msg, kind = 'error') {
     const a = $('alert'); a.className = kind; $('alerttext').textContent = msg; a.hidden = false;
   }
@@ -271,7 +274,7 @@
         if (!res.data.length) return fail('No rows found');
         setData(name, res.data);
         const bad = res.errors.filter(e => e.code !== 'UndetectableDelimiter').length;
-        if (bad) showAlert(`${bad.toLocaleString()} rows have problems, for example bad quotes or a wrong number of fields. The table shows them as parsed.`, 'warn');
+        if (bad) showAlert(`The parser found ${bad.toLocaleString()} problems, for example bad quotes or a wrong number of fields. The table shows the rows as parsed.`, 'warn');
       },
       error: err => { if (!isStale(id)) fail(`Cannot parse the file: ${err.message || err}`); },
     });
@@ -490,7 +493,7 @@
         const isAct = act && act.r === ri && act.c === ci;
         return `<td id="c${ri}-${ci}" role="gridcell" data-r="${ri}" data-c="${ci}" class="${state.numeric[ci] ? 'num' : ''}${wrap}${isAct ? ' active' : ''}"${isAct ? ' aria-selected="true"' : ''} title="${escapeHtml(String(r[ci]))}">${highlight(r[ci])}</td>`;
       }).join('') + '</tr>').join('');
-    if (act && activeTd()) $('tablewrap').setAttribute('aria-activedescendant', activeTd().id); else $('tablewrap').removeAttribute('aria-activedescendant');
+    if (act && activeTd()) $('table').setAttribute('aria-activedescendant', activeTd().id); else $('table').removeAttribute('aria-activedescendant');
 
     const total = state.rows.length, shown = state.filtered.length, hiddenN = state.hidden.size;
     $('count').textContent = (shown === total ? `${total.toLocaleString()} rows` : `${shown.toLocaleString()} of ${total.toLocaleString()} rows`) +
@@ -504,7 +507,7 @@
   // ---------- column menu ----------
   function buildColumnMenu() {
     const body = $('colmenubody');
-    body.innerHTML = '<div class="row"><button type="button" data-act="all">Show all</button><button type="button" data-act="none">Hide all</button></div>' +
+    body.innerHTML = '<div class="row"><button type="button" data-act="all">Show all</button><button type="button" data-act="none">Hide others</button></div>' +
       state.headers.map((h, i) => `<label><input type="checkbox" data-col="${i}" ${state.hidden.has(i) ? '' : 'checked'}> <span>${escapeHtml(h)}</span></label>`).join('');
   }
   $('colmenubody').addEventListener('change', e => {
@@ -521,16 +524,23 @@
     if (state.hidden.has(state.sortCol)) { state.sortCol = -1; state.sortDir = 1; }
     state.active = null;
     buildColumnMenu(); applyFilter();
+    const again = $('colmenubody').querySelector(`button[data-act="${b.dataset.act}"]`); if (again) again.focus();   // The menu was rebuilt.
   });
-  document.addEventListener('click', e => { const m = $('colmenu'); if (m.open && !m.contains(e.target)) m.open = false; });
+  // composedPath() is fixed when the click starts, so a button that the click replaced still counts as inside the menu.
+  document.addEventListener('click', e => { const m = $('colmenu'); if (m.open && !e.composedPath().includes(m)) m.open = false; });
 
   // ---------- column resize ----------
   // state.colWidths is keyed by column: index 0 is the row-number column, index i+1 is data column i.
   const colKey = th => th.classList.contains('rownum') ? 0 : +th.dataset.col + 1;
+  const clampWidth = px => Math.min(900, Math.max(40, px));   // The same range as aria-valuemin and aria-valuemax.
   function applyColWidths() {
     const table = $('table'), w = state.colWidths;
     table.classList.toggle('resized', !!w);
-    if (!w) { table.querySelector('colgroup').innerHTML = ''; table.style.width = ''; return; }
+    if (!w) {
+      table.querySelector('colgroup').innerHTML = ''; table.style.width = '';
+      for (const th of table.tHead.rows[0].cells) { const rz = th.querySelector('.rz'); if (rz) rz.setAttribute('aria-valuenow', th.offsetWidth); }   // Report the real width.
+      return;
+    }
     const keys = [...table.tHead.rows[0].cells].map(colKey);
     table.querySelector('colgroup').innerHTML = keys.map(k => `<col style="width:${w[k]}px">`).join('');
     table.style.width = keys.reduce((a, k) => a + w[k], 0) + 'px';
@@ -549,7 +559,7 @@
     captureColWidths();
     const key = colKey(rz.parentElement), startX = e.clientX, startW = state.colWidths[key];
     rz.classList.add('active'); document.body.classList.add('resizing'); rz.setPointerCapture(e.pointerId);
-    const move = ev => { state.colWidths[key] = Math.max(40, startW + ev.clientX - startX); applyColWidths(); };
+    const move = ev => { state.colWidths[key] = clampWidth(startW + ev.clientX - startX); applyColWidths(); };
     const up = () => {
       rz.removeEventListener('pointermove', move); rz.removeEventListener('pointerup', up); rz.removeEventListener('pointercancel', up);
       rz.classList.remove('active'); document.body.classList.remove('resizing');
@@ -564,7 +574,7 @@
     const label = th.querySelector('.label');
     let w = label ? label.scrollWidth + 44 : 40;   // Space for the padding and the sort icon, so the name is not cut.
     for (const row of $('table').tBodies[0].rows) { const cell = row.cells[idx]; if (cell) w = Math.max(w, cell.scrollWidth + 2); }
-    state.colWidths[colKey(th)] = Math.min(w, 900);
+    state.colWidths[colKey(th)] = clampWidth(w);
     applyColWidths();
   }
   $('table').tHead.addEventListener('dblclick', e => { const rz = e.target.closest('.rz'); if (rz) fitColumn(rz.parentElement); });
@@ -573,7 +583,7 @@
     const th = rz.parentElement, step = e.shiftKey ? 50 : 10;
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       e.preventDefault(); captureColWidths();
-      const k = colKey(th); state.colWidths[k] = Math.max(40, state.colWidths[k] + (e.key === 'ArrowRight' ? step : -step)); applyColWidths();
+      const k = colKey(th); state.colWidths[k] = clampWidth(state.colWidths[k] + (e.key === 'ArrowRight' ? step : -step)); applyColWidths();
     } else if (e.key === 'Enter') { e.preventDefault(); fitColumn(th); }
   });
 
@@ -583,9 +593,11 @@
     const th = e.target.closest('th[data-col]'); if (!th) return;
     const c = +th.dataset.col;
     state.active = null; state.page = 0;   // The row order changes, so the selected cell and the page no longer apply.
-    if (state.sortCol === c) { if (state.sortDir === 1) state.sortDir = -1; else { state.sortCol = -1; state.sortDir = 1; applyFilter(); return; } }
+    if (state.sortCol === c) { if (state.sortDir === 1) state.sortDir = -1; else { state.sortCol = -1; state.sortDir = 1; } }
     else { state.sortCol = c; state.sortDir = 1; }
-    applySort();
+    applyFilter();
+    // render() replaced the header, so put the focus back on the same sort button.
+    const btn = $('table').querySelector(`th[data-col="${c}"] .sortbtn`); if (btn) btn.focus({ preventScroll: true });
   });
 
   // ---------- cell selection and detail ----------
@@ -593,9 +605,9 @@
   function setActive(r, c, scroll) {
     const old = activeTd(); if (old) { old.classList.remove('active'); old.removeAttribute('aria-selected'); }
     state.active = { r, c };
-    const td = activeTd(); if (!td) { $('tablewrap').removeAttribute('aria-activedescendant'); return; }
+    const td = activeTd(); if (!td) { $('table').removeAttribute('aria-activedescendant'); return; }
     td.classList.add('active'); td.setAttribute('aria-selected', 'true');
-    $('tablewrap').setAttribute('aria-activedescendant', td.id);
+    $('table').setAttribute('aria-activedescendant', td.id);
     if (scroll) {
       td.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       // Keep the cell clear of the sticky row-number column.
@@ -617,17 +629,23 @@
     try { await navigator.clipboard.writeText(text); return true; }
     catch { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); return ok; }
   }
-  $('table').tBodies[0].addEventListener('click', e => { const td = e.target.closest('td[data-r]'); if (td) setActive(+td.dataset.r, +td.dataset.c, false); });
+  // A click selects the cell and gives the table the keyboard, so the arrow keys work after a click.
+  $('table').tBodies[0].addEventListener('click', e => { const td = e.target.closest('td[data-r]'); if (td) { setActive(+td.dataset.r, +td.dataset.c, false); $('table').focus({ preventScroll: true }); } });
   $('table').tBodies[0].addEventListener('dblclick', e => { const td = e.target.closest('td[data-r]'); if (td) { setActive(+td.dataset.r, +td.dataset.c, false); openCell(); } });
-  $('cellcopy').onclick = async () => { if (await copyText($('cellval').textContent)) { $('copied').hidden = false; setTimeout(() => { $('copied').hidden = true; }, 1500); } };
+  $('cellcopy').onclick = async () => {
+    const ok = await copyText($('cellval').textContent);
+    $('copied').textContent = ok ? 'Copied' : 'Cannot copy. Select the text and copy it.';
+    $('copied').hidden = false; setTimeout(() => { $('copied').hidden = true; }, ok ? 1500 : 4000);
+  };
   $('cellclose').onclick = () => $('cell').close();
   $('cell').addEventListener('click', e => { if (e.target === $('cell')) $('cell').close(); });   // Click on the backdrop closes the dialog.
 
   const page = n => { const pc = pageCount(); const p = Math.max(0, Math.min(pc - 1, n)); if (p !== state.page) { state.page = p; state.active = null; render(); } };
-  $('tablewrap').addEventListener('keydown', e => {
-    if (e.target !== $('tablewrap')) return;   // Header buttons and resize handles have their own keys.
+  $('table').addEventListener('keydown', e => {
+    if (e.target !== $('table')) return;   // Header buttons and resize handles have their own keys.
     const cols = visibleCols(), rowsOnPage = $('table').tBodies[0].rows.length;
     if (!rowsOnPage) return;
+    if (!state.active && /^Arrow/.test(e.key)) { e.preventDefault(); setActive(0, cols[0], true); return; }   // The first arrow key selects the first cell.
     const a = state.active || { r: 0, c: cols[0] };
     let ci = cols.indexOf(a.c), r = a.r, handled = true;
     switch (e.key) {
@@ -640,7 +658,7 @@
       case 'PageDown': e.preventDefault(); page(state.page + 1); return;   // preventDefault stops the document handler from paging again.
       case 'PageUp': e.preventDefault(); page(state.page - 1); return;
       case 'Enter': e.preventDefault(); if (state.active) openCell(); return;
-      case 'c': case 'C': if ((e.ctrlKey || e.metaKey) && state.active && !String(getSelection())) { copyText(cellValue()); return; } handled = false; break;
+      case 'c': case 'C': if ((e.ctrlKey || e.metaKey) && state.active && !String(getSelection())) { e.preventDefault(); copyText(cellValue()); return; } handled = false; break;
       default: handled = false;
     }
     if (!handled) return;
@@ -680,7 +698,7 @@
   function setQuery(q) { state.query = q.trim(); state.page = 0; state.active = null; $('clear').hidden = !q; applyFilter(); }
   $('search').addEventListener('input', e => { clearTimeout(searchTimer); searchTimer = setTimeout(() => setQuery(e.target.value), 120); });
   $('clear').onclick = () => { $('search').value = ''; setQuery(''); $('search').focus(); };
-  $('sheet').addEventListener('change', e => selectSheet(e.target.value));
+  $('sheet').addEventListener('change', e => { newLoad(); selectSheet(e.target.value); });   // A sheet change is the newest load. It cancels any other load.
   $('headerrow').addEventListener('change', () => { state.active = null; buildFromRaw(); });
   $('wrap').addEventListener('change', render);
   $('pagesize').addEventListener('change', () => { state.page = 0; state.active = null; render(); });
