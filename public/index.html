@@ -114,6 +114,7 @@
   tbody tr:hover td { background: var(--hover); }
   tbody td.active { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--active) !important; }
   td.wrap { white-space: pre-wrap; max-width: none; }
+  td img { display: block; max-width: 160px; max-height: 80px; }
   /* Column resize. After the first change, the table uses fixed widths from state.colWidths. */
   table.resized { table-layout: fixed; min-width: 0; }
   table.resized th, table.resized td { max-width: none; }
@@ -207,6 +208,7 @@
     <div class="group">
       <label title="The row that contains the column names. Use 0 if there is no header row.">Header row <input type="number" id="headerrow" min="0" value="1" style="width:60px"></label>
       <label><input type="checkbox" id="wrap"> Wrap text</label>
+      <label title="Show links to images as images. The browser then gets each image from its site."><input type="checkbox" id="images"> Show images</label>
     </div>
     <span class="spacer"></span>
     <span id="count" class="muted" aria-live="polite"></span>
@@ -535,6 +537,13 @@
   }
   // A regex that matches the search text. The capture group keeps the matches in split().
   const queryRegex = () => new RegExp(`(${state.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  // A link to an image file, or a Google Drive file link. A Drive file shows as a thumbnail if the file is public.
+  function imageUrl(v) {
+    const s = String(v).trim();
+    const drive = s.match(/^https:\/\/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:export=\w+&)?id=)([\w-]+)/);
+    if (drive) return `https://drive.google.com/thumbnail?id=${drive[1]}&sz=w320`;
+    return /^https?:\/\/\S+\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)(\?\S*)?$/i.test(s) || /^data:image\/[\w+.-]+;base64,/.test(s) ? s : null;
+  }
   const escapeHtml = s => s.replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
 
   // ---------- render ----------
@@ -553,11 +562,12 @@
 
     const size = pageSize(), start = state.page * size, slice = state.filtered.slice(start, start + size);
     const wrap = $('wrap').checked ? ' wrap' : '';
-    const act = state.active;
+    const act = state.active, imgs = $('images').checked;
+    const cellHtml = v => { const u = imgs && imageUrl(v); return u ? `<img src="${escapeHtml(u)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : highlight(v); };
     tbody.innerHTML = slice.map((r, ri) =>
       `<tr role="row"><td class="rownum" role="rowheader">${start + ri + 1}</td>` + cols.map(ci => {
         const isAct = act && act.r === ri && act.c === ci;
-        return `<td id="c${ri}-${ci}" role="gridcell" data-r="${ri}" data-c="${ci}" class="${state.numeric[ci] ? 'num' : ''}${wrap}${isAct ? ' active' : ''}"${isAct ? ' aria-selected="true"' : ''} title="${escapeHtml(String(r[ci]))}">${highlight(r[ci])}</td>`;
+        return `<td id="c${ri}-${ci}" role="gridcell" data-r="${ri}" data-c="${ci}" class="${state.numeric[ci] ? 'num' : ''}${wrap}${isAct ? ' active' : ''}"${isAct ? ' aria-selected="true"' : ''} title="${escapeHtml(String(r[ci]))}">${cellHtml(r[ci])}</td>`;
       }).join('') + '</tr>').join('');
     if (act && activeTd()) $('table').setAttribute('aria-activedescendant', activeTd().id); else $('table').removeAttribute('aria-activedescendant');
 
@@ -776,6 +786,7 @@
   $('sheet').addEventListener('change', e => { newLoad(); selectSheet(e.target.value); });   // A sheet change is the newest load. It cancels any other load.
   $('headerrow').addEventListener('change', () => { state.active = null; buildFromRaw(); });
   $('wrap').addEventListener('change', render);
+  $('images').addEventListener('change', render);
   $('pagesize').addEventListener('change', () => { state.page = 0; state.active = null; render(); });
   $('first').onclick = () => page(0);
   $('prev').onclick = () => page(state.page - 1);

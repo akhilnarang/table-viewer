@@ -56,6 +56,9 @@ the user to download the file and drop it on the page.
 - The "Header row" box selects the row that contains the column names. If the first row only contains
   `1, 2, 3, ...`, the page uses the next row.
 - The page shows 50 to 5000 rows at a time. You can turn on text wrap.
+- "Show images" shows links to images (.png, .jpg, .gif, .webp, .svg, and others) as images.
+  Google Drive file links show as thumbnails if the file is public. This setting is off at first,
+  because the browser then gets each image from its site.
   You can download all filtered rows and visible columns as a CSV file.
 - A progress bar shows while a file loads. Errors and warnings show in a banner that you can dismiss.
 - The app works offline after the first visit. You can install it as an app from the browser menu.
