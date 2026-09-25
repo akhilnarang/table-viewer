@@ -58,4 +58,6 @@ the user to download the file and drop it on the page.
 - The page shows 50 to 5000 rows at a time. You can turn on text wrap.
   You can download all filtered rows and visible columns as a CSV file.
 - A progress bar shows while a file loads. Errors and warnings show in a banner that you can dismiss.
+- The app works offline after the first visit. You can install it as an app from the browser menu.
+  `public/sw.js` keeps the page and the libraries in a cache. Data from links is not cached.
 - The page works with a keyboard and a screen reader. Controls have names, and the sort state is announced.

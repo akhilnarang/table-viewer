@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Table Viewer</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#2563eb">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='2' width='14' height='12' rx='2' fill='%232563eb'/%3E%3Cpath d='M1 6h14M1 10h14M6 2v12M11 2v12' stroke='white'/%3E%3C/svg%3E">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.6.1/papaparse.min.js" integrity="sha384-ZVJUwa/1rxfBIZ6gJqlM9PvedRQuTamdrl5OnnNm29zrIS8+VHFCifyWfJrKcveV" crossorigin="anonymous"></script>
 <!-- SheetJS publishes versions after 0.18.5 only on its own CDN. 0.18.5 has known security problems. -->
@@ -810,6 +813,9 @@
   // If the page URL has ?url=..., load that link when the page opens.
   const initial = new URLSearchParams(location.search).get('url');
   if (initial) { $('url').value = initial; loadUrl(initial); }
+
+  // The service worker (sw.js) makes the app work offline and lets the browser install it.
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});   // It fails on file:// pages. The app still works.
 })();
 </script>
 </body>
