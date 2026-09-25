@@ -331,10 +331,16 @@
       db = new SQL.Database(bytes);
       const [res] = db.exec("SELECT name FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY name");
       if (!res) throw new Error('the database has no tables');
-      const cell = v => v == null ? '' : v instanceof Uint8Array ? `(binary, ${v.length} bytes)` : v;
+      // useBigInt keeps integers above 2^53 exact. They show as text.
+      const cell = v => v == null ? '' : typeof v === 'bigint' ? String(v) : v instanceof Uint8Array ? `(binary, ${v.length} bytes)` : v;
       showSheets(name, res.values.map(v => v[0]), t => {
-        const [r] = db.exec(`SELECT * FROM "${t.replace(/"/g, '""')}"`);
-        return r ? [r.columns, ...r.values.map(row => row.map(cell))] : [];
+        // A prepared statement gives the column names also for an empty table.
+        const stmt = db.prepare(`SELECT * FROM "${t.replace(/"/g, '""')}"`);
+        try {
+          const out = [stmt.getColumnNames()];
+          while (stmt.step()) out.push(stmt.get(null, { useBigInt: true }).map(cell));
+          return out;
+        } finally { stmt.free(); }
       }, () => db.close());
     } catch (e) {
       db?.close();
@@ -547,7 +553,7 @@
     $('count').textContent = (shown === total ? `${total.toLocaleString()} rows` : `${shown.toLocaleString()} of ${total.toLocaleString()} rows`) +
       ` · ${cols.length} columns` + (hiddenN ? ` (${hiddenN} hidden)` : '');
     const pc = pageCount();
-    $('pageinfo').textContent = shown ? `${(start + 1).toLocaleString()}–${Math.min(start + size, shown).toLocaleString()} (page ${state.page + 1} of ${pc})` : 'No matching rows';
+    $('pageinfo').textContent = shown ? `${(start + 1).toLocaleString()}–${Math.min(start + size, shown).toLocaleString()} (page ${state.page + 1} of ${pc})` : total ? 'No matching rows' : 'No rows';
     $('first').disabled = $('prev').disabled = state.page === 0;
     $('next').disabled = $('last').disabled = state.page >= pc - 1;
   }
