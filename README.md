@@ -41,6 +41,8 @@ the user to download the file and drop it on the page.
 - Link types: direct file links, Google Sheets share links (the sheet must be public or published to the web),
   GitHub blob links, and Dropbox share links. You can also open `/?url=<link>` to load a link.
 - A workbook with more than one sheet gets a sheet selector. For a SQLite database, the selector shows the tables and views.
+- For a SQLite database, you can also type a SQL query and click "Run". The query runs on a copy of the
+  database in the browser. The file does not change.
 - Search finds text in all visible columns. Matches are highlighted. Ctrl+F moves the cursor to the search box.
   Esc clears the search.
 - Click a column name to sort. Click again to reverse the order. Click a third time to remove the sort.

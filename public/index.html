@@ -191,6 +191,11 @@
       </div>
       <label for="sheet" class="sr-only">Sheet</label>
       <select id="sheet" title="Sheet" style="display:none"></select>
+      <form class="url-form" id="sqlform" hidden>
+        <label for="sql" class="sr-only">SQL query</label>
+        <input type="text" id="sql" placeholder="SQL query" autocomplete="off" spellcheck="false">
+        <button type="submit" title="Run the query on a copy of the database in this browser. The file does not change.">Run</button>
+      </form>
       <details class="menu" id="colmenu">
         <summary title="Show or hide columns">Columns</summary>
         <div class="menu-body" id="colmenubody"></div>
@@ -333,15 +338,19 @@
       if (!res) throw new Error('the database has no tables');
       // useBigInt keeps integers above 2^53 exact. They show as text.
       const cell = v => v == null ? '' : typeof v === 'bigint' ? String(v) : v instanceof Uint8Array ? `(binary, ${v.length} bytes)` : v;
-      showSheets(name, res.values.map(v => v[0]), t => {
-        // A prepared statement gives the column names also for an empty table.
-        const stmt = db.prepare(`SELECT * FROM "${t.replace(/"/g, '""')}"`);
+      // A prepared statement gives the column names also when there are no rows. Only the first statement runs.
+      const query = sql => {
+        const stmt = db.prepare(sql);
         try {
           const out = [stmt.getColumnNames()];
           while (stmt.step()) out.push(stmt.get(null, { useBigInt: true }).map(cell));
           return out;
         } finally { stmt.free(); }
-      }, () => db.close());
+      };
+      const tableSql = t => `SELECT * FROM "${t.replace(/"/g, '""')}"`;
+      showSheets(name, res.values.map(v => v[0]), t => { $('sql').value = tableSql(t); return query(tableSql(t)); }, () => db.close());
+      state.source.query = query;
+      $('sqlform').hidden = false;
     } catch (e) {
       db?.close();
       if (!isStale(id)) fail(`Cannot read the database: ${e.message}`);
@@ -350,7 +359,7 @@
 
   // A source has more than one table: the sheets of a workbook, or the tables of a database.
   // rows(name) gives the rows of one table. close() frees the memory, if the source needs it.
-  const closeSource = () => { state.source?.close?.(); state.source = null; };
+  const closeSource = () => { state.source?.close?.(); state.source = null; $('sqlform').hidden = true; };
   function showSheets(name, names, rows, close) {
     closeSource();
     state.source = { rows, close };
@@ -752,6 +761,15 @@
   function setQuery(q) { state.query = q.trim(); state.page = 0; state.active = null; $('clear').hidden = !q; applyFilter(); }
   $('search').addEventListener('input', e => { clearTimeout(searchTimer); searchTimer = setTimeout(() => setQuery(e.target.value), 120); });
   $('clear').onclick = () => { $('search').value = ''; setQuery(''); $('search').focus(); };
+  $('sqlform').addEventListener('submit', e => {
+    e.preventDefault();
+    const sql = $('sql').value.trim(); if (!sql || !state.source?.query) return;
+    newLoad();
+    let aoa;
+    try { aoa = state.source.query(sql); } catch (err) { return fail(`The query failed: ${err.message}`); }
+    if (!aoa[0].length) { setBusy(false); return showAlert('The query ran on the copy in this browser. It gives no columns, so the table did not change. Use SELECT to see data.', 'warn'); }
+    setData(state.name, aoa, true);
+  });
   $('sheet').addEventListener('change', e => { newLoad(); selectSheet(e.target.value); });   // A sheet change is the newest load. It cancels any other load.
   $('headerrow').addEventListener('change', () => { state.active = null; buildFromRaw(); });
   $('wrap').addEventListener('change', render);
