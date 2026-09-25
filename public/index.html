@@ -5,8 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Table Viewer</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='2' width='14' height='12' rx='2' fill='%232563eb'/%3E%3Cpath d='M1 6h14M1 10h14M6 2v12M11 2v12' stroke='white'/%3E%3C/svg%3E">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js" integrity="sha384-D/t0ZMqQW31H3az8ktEiNb39wyKnS82iFY52QPACM+IjKW3jDUhyIgh2PApRqJZs" crossorigin="anonymous"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.6.1/papaparse.min.js" integrity="sha384-ZVJUwa/1rxfBIZ6gJqlM9PvedRQuTamdrl5OnnNm29zrIS8+VHFCifyWfJrKcveV" crossorigin="anonymous"></script>
+<!-- SheetJS publishes versions after 0.18.5 only on its own CDN. 0.18.5 has known security problems. -->
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous"></script>
 <style>
   :root {
     color-scheme: light dark;
@@ -149,7 +150,7 @@
 <body>
 <header>
   <h1>Table Viewer</h1>
-  <input type="file" id="file" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.ods,.json" hidden>
+  <input type="file" id="file" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.xlsb,.ods,.json,.sqlite,.sqlite3,.db,.db3" hidden>
   <button type="button" id="open">Open file</button>
   <form class="url-form" id="urlform">
     <label for="url" class="sr-only">Link to a data file</label>
@@ -164,7 +165,7 @@
 
 <div id="drop">
   <strong>Drop a file here</strong>
-  <span>CSV, TSV, Excel (.xlsx, .xls), ODS, or JSON. Or <label for="file">select a file</label>. Or paste a link above.</span>
+  <span>CSV, TSV, Excel (.xlsx, .xls), ODS, JSON, or SQLite. Or <label for="file">select a file</label>. Or paste a link above.</span>
   <span>You can also press <kbd>Ctrl</kbd>+<kbd>V</kbd> to paste a file, CSV text, or a link.</span>
   <details>
     <summary>Tips and shortcuts</summary>
@@ -227,7 +228,7 @@
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-  const state = { workbook: null, name: '', raw: [], headers: [], rows: [], filtered: [], sortCol: -1, sortDir: 1, page: 0, query: '', numeric: [], colWidths: null, hidden: new Set(), active: null };
+  const state = { source: null, name: '', raw: [], headers: [], rows: [], filtered: [], sortCol: -1, sortDir: 1, page: 0, query: '', numeric: [], colWidths: null, hidden: new Set(), active: null };
 
   // ---------- status, progress, alerts ----------
   const setStatus = msg => { $('status').textContent = msg || ''; };
@@ -254,6 +255,9 @@
     reader.onerror = () => { if (!isStale(id)) fail('Cannot read the file'); };
     if (['xlsx', 'xlsm', 'xls', 'ods', 'xlsb'].includes(ext)) {
       reader.onload = e => { if (!isStale(id)) loadWorkbook(new Uint8Array(e.target.result), file.name, id); };
+      reader.readAsArrayBuffer(file);
+    } else if (['sqlite', 'sqlite3', 'db', 'db3'].includes(ext)) {
+      reader.onload = e => { if (!isStale(id)) loadSQLite(new Uint8Array(e.target.result), file.name, id); };
       reader.readAsArrayBuffer(file);
     } else if (ext === 'json') {
       reader.onload = e => { if (!isStale(id)) loadJSON(e.target.result, file.name); };
@@ -300,20 +304,62 @@
       if (isStale(id)) return;
       let wb;
       try { wb = XLSX.read(bytes, { type: 'array' }); } catch (e) { return fail(`Cannot read the workbook: ${e.message}`); }
-      state.workbook = wb;
-      const sel = $('sheet');
-      sel.innerHTML = '';
-      wb.SheetNames.forEach(n => { const o = document.createElement('option'); o.textContent = n; sel.appendChild(o); });
-      sel.style.display = wb.SheetNames.length > 1 ? '' : 'none';
-      state.name = name;
-      selectSheet(wb.SheetNames[0]);
+      showSheets(name, wb.SheetNames, n => XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: false, defval: '' }).filter(r => r.some(c => c !== '')));
     }, 30);
   }
 
+  // The SQLite library (WebAssembly) loads only when the user opens a database.
+  const SQLJS = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.14.2/';
+  let sqlJs;
+  const loadSqlJs = () => sqlJs ??= new Promise((ok, err) => {
+    const s = document.createElement('script');
+    s.src = SQLJS + 'sql-wasm.min.js'; s.crossOrigin = 'anonymous';
+    s.integrity = 'sha384-ua6rbgEfbwIWlrG1MxSagm4g3MI0VYpCkQQCjt6CtFL345h8/3ttwVWpyKiRzt/9';
+    s.onload = ok; s.onerror = () => err(new Error('cannot load the SQLite library'));
+    document.head.appendChild(s);
+  }).then(() => fetch(SQLJS + 'sql-wasm.wasm', { integrity: 'sha384-x0YkuPkDHnKTZcB1JO4eb6j5+eU36aka+jBA6tOKTFaTz98b9V7fPT0QgZ9qyQW2' }))
+    .then(r => r.arrayBuffer()).then(wasmBinary => initSqlJs({ wasmBinary }))
+    .catch(e => { sqlJs = null; throw e; });   // Try again on the next database.
+
+  // Each table and view shows as a sheet.
+  async function loadSQLite(bytes, name, id) {
+    setStatus(`Opening database ${name}…`);
+    let db;
+    try {
+      const SQL = await loadSqlJs();
+      if (isStale(id)) return;
+      db = new SQL.Database(bytes);
+      const [res] = db.exec("SELECT name FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY name");
+      if (!res) throw new Error('the database has no tables');
+      const cell = v => v == null ? '' : v instanceof Uint8Array ? `(binary, ${v.length} bytes)` : v;
+      showSheets(name, res.values.map(v => v[0]), t => {
+        const [r] = db.exec(`SELECT * FROM "${t.replace(/"/g, '""')}"`);
+        return r ? [r.columns, ...r.values.map(row => row.map(cell))] : [];
+      }, () => db.close());
+    } catch (e) {
+      db?.close();
+      if (!isStale(id)) fail(`Cannot read the database: ${e.message}`);
+    }
+  }
+
+  // A source has more than one table: the sheets of a workbook, or the tables of a database.
+  // rows(name) gives the rows of one table. close() frees the memory, if the source needs it.
+  const closeSource = () => { state.source?.close?.(); state.source = null; };
+  function showSheets(name, names, rows, close) {
+    closeSource();
+    state.source = { rows, close };
+    const sel = $('sheet');
+    sel.innerHTML = '';
+    names.forEach(n => { const o = document.createElement('option'); o.textContent = n; sel.appendChild(o); });
+    sel.style.display = names.length > 1 ? '' : 'none';
+    state.name = name;
+    selectSheet(names[0]);
+  }
+
   function selectSheet(sheetName) {
-    const ws = state.workbook.Sheets[sheetName];
-    const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' }).filter(r => r.some(c => c !== ''));
-    if (!aoa.length) return fail(`Sheet "${sheetName}" is empty`);
+    let aoa;
+    try { aoa = state.source.rows(sheetName); } catch (e) { return fail(`Cannot read "${sheetName}": ${e.message}`); }
+    if (!aoa.length) return fail(`"${sheetName}" is empty`);
     setData(state.name, aoa, true);
   }
 
@@ -368,10 +414,12 @@
       const { buf, type, finalUrl } = await fetchBytes(url);
       if (isStale(id)) return;
       const name = decodeURIComponent((finalUrl.split('?')[0].split('/').pop() || 'download'));
-      const head = new Uint8Array(buf.slice(0, 4));
+      const head = new Uint8Array(buf.slice(0, 16));
       const isZip = head[0] === 0x50 && head[1] === 0x4B;                // xlsx and ods files are zip files
       const isOle = head[0] === 0xD0 && head[1] === 0xCF;                // old xls files
-      if (isZip || isOle || /spreadsheet|excel|\.xls/i.test(type + name)) {
+      if (new TextDecoder().decode(head) === 'SQLite format 3\0') {
+        loadSQLite(new Uint8Array(buf), name, id);
+      } else if (isZip || isOle || /spreadsheet|excel|\.xls/i.test(type + name)) {
         loadWorkbook(new Uint8Array(buf), name, id);
       } else {
         // Use the byte order mark to detect UTF-16. Otherwise, assume UTF-8.
@@ -389,7 +437,7 @@
   // ---------- data ----------
   // raw is an array of rows. It includes the header row. The "Header row" box selects the row that has the column names.
   function setData(name, raw, keepSheetSelect) {
-    if (!keepSheetSelect) { state.workbook = null; $('sheet').style.display = 'none'; }
+    if (!keepSheetSelect) { closeSource(); $('sheet').style.display = 'none'; }
     state.name = name; state.raw = raw;
     // Some exported reports start with a row that only contains 1, 2, 3, and so on.
     // In that case, the column names are in the next row.
@@ -708,7 +756,7 @@
   $('last').onclick = () => page(pageCount() - 1);
   $('reset').onclick = () => {
     loadSeq++;   // Ignore loads that are still in progress.
-    state.raw = []; state.rows = []; state.filtered = []; state.workbook = null; state.active = null;   // Free the memory.
+    state.raw = []; state.rows = []; state.filtered = []; closeSource(); state.active = null;   // Free the memory.
     $('table').tHead.innerHTML = ''; $('table').tBodies[0].innerHTML = ''; $('table').querySelector('colgroup').innerHTML = '';
     $('view').style.display = 'none'; $('drop').style.display = ''; document.title = 'Table Viewer';
     $('filename').textContent = ''; setStatus(''); setBusy(false); hideAlert();

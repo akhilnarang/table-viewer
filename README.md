@@ -36,10 +36,11 @@ the user to download the file and drop it on the page.
 ## Features
 
 - Drop a file on the page, select a file, or paste with Ctrl+V. You can paste a file, CSV text, or a link.
-- File types: CSV, TSV, Excel (.xlsx, .xls, .xlsm, .xlsb), ODS, and JSON (an array of objects or arrays).
+- File types: CSV, TSV, Excel (.xlsx, .xls, .xlsm, .xlsb), ODS, JSON (an array of objects or arrays),
+  and SQLite (.sqlite, .sqlite3, .db, .db3). The SQLite library loads only when you open a database.
 - Link types: direct file links, Google Sheets share links (the sheet must be public or published to the web),
   GitHub blob links, and Dropbox share links. You can also open `/?url=<link>` to load a link.
-- A workbook with more than one sheet gets a sheet selector.
+- A workbook with more than one sheet gets a sheet selector. For a SQLite database, the selector shows the tables and views.
 - Search finds text in all visible columns. Matches are highlighted. Ctrl+F moves the cursor to the search box.
   Esc clears the search.
 - Click a column name to sort. Click again to reverse the order. Click a third time to remove the sort.
