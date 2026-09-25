@@ -49,16 +49,15 @@ the user to download the file and drop it on the page.
   Number columns sort as numbers. This includes values such as `$1,234` and `12%`. Empty cells go last.
 - Drag the right edge of a column name to change the width. Double-click the edge to fit the content.
   The edge is a keyboard control: Tab to it and use the arrow keys.
-- The "Columns" menu shows or hides columns.
+- The "Columns" menu shows or hides columns. "Copy names" copies the names of the visible columns, one name on each line.
 - Click a cell to select it. Double-click it, or press Enter, to see the full value and copy it.
   The arrow keys move between cells. PageDown and PageUp change the page.
 - The row numbers stay in view when the table scrolls sideways.
 - The "Header row" box selects the row that contains the column names. If the first row only contains
   `1, 2, 3, ...`, the page uses the next row.
 - The page shows 50 to 5000 rows at a time. You can turn on text wrap.
-- "Show images" shows links to images (.png, .jpg, .gif, .webp, .svg, and others) as images.
-  Google Drive file links show as thumbnails if the file is public. This setting is off at first,
-  because the browser then gets each image from its site.
+- Images in Excel files show in the table. This includes images in a cell and images over the cells.
+  An image over the cells shows in the cell at its top-left corner. Double-click an image to see it at full size.
   You can download all filtered rows and visible columns as a CSV file.
 - A progress bar shows while a file loads. Errors and warnings show in a banner that you can dismiss.
 - The app works offline after the first visit. You can install it as an app from the browser menu.

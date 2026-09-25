@@ -133,6 +133,7 @@
   dialog::backdrop { background: rgba(0,0,0,.4); }
   dialog .dhead { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); }
   dialog h2 { font-size: 14px; margin: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  dialog pre img { max-width: 100%; }
   dialog pre { margin: 0; padding: 14px; white-space: pre-wrap; word-break: break-word; max-height: 60vh; overflow: auto; font: 13px/1.5 ui-monospace, monospace; }
   dialog .dfoot { padding: 8px 14px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; display: flex; gap: 8px; align-items: center; }
 
@@ -208,7 +209,6 @@
     <div class="group">
       <label title="The row that contains the column names. Use 0 if there is no header row.">Header row <input type="number" id="headerrow" min="0" value="1" style="width:60px"></label>
       <label><input type="checkbox" id="wrap"> Wrap text</label>
-      <label title="Show links to images as images. The browser then gets each image from its site."><input type="checkbox" id="images"> Show images</label>
     </div>
     <span class="spacer"></span>
     <span id="count" class="muted" aria-live="polite"></span>
@@ -314,8 +314,73 @@
       if (isStale(id)) return;
       let wb;
       try { wb = XLSX.read(bytes, { type: 'array' }); } catch (e) { return fail(`Cannot read the workbook: ${e.message}`); }
-      showSheets(name, wb.SheetNames, n => XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: false, defval: '' }).filter(r => r.some(c => c !== '')));
+      let images = { sheets: {}, close() {} };
+      try { images = workbookImages(bytes); } catch (e) { console.warn('Cannot read the images', e); }   // The table still shows without them.
+      showSheets(name, wb.SheetNames, n => {
+        const ws = wb.Sheets[n], aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+        // aoa starts at the first used cell of the sheet, not always at A1.
+        const start = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']).s : { r: 0, c: 0 };
+        for (const [r, c, url] of images.sheets[n] || []) if (r >= start.r && c >= start.c) (aoa[r - start.r] ??= [])[c - start.c] = { img: url, toString: () => '(image)' };
+        return aoa.filter(r => r.some(c => c !== ''));
+      }, images.close);
     }, 30);
+  }
+
+  // SheetJS does not read images, so read them from the .xlsx zip file. Excel keeps an image in a cell
+  // ("Place in Cell"), or over the cells (a drawing). A drawing image goes in the cell at its top-left corner.
+  // Returns { sheets: { sheetName: [[row, col, blobUrl], ...] }, close }.
+  // ponytail: one image per cell, the last one wins. Images from links (the IMAGE function) are not read.
+  function workbookImages(bytes) {
+    const zip = XLSX.CFB.read(bytes, { type: 'array' }), sheets = {}, urls = {};
+    const close = () => Object.values(urls).forEach(u => u && URL.revokeObjectURL(u));
+    const file = path => XLSX.CFB.find(zip, '/' + path)?.content;
+    const xml = path => { const c = file(path); return c && new DOMParser().parseFromString(new TextDecoder().decode(new Uint8Array(c)), 'application/xml'); };
+    const tags = (node, name) => node ? [...node.getElementsByTagNameNS('*', name)] : [];
+    // The relationships of a part: id -> path of the target part in the zip.
+    const rels = path => Object.fromEntries(tags(xml(path.replace(/[^/]+$/, '_rels/$&.rels')), 'Relationship')
+      .map(r => [r.getAttribute('Id'), new URL(r.getAttribute('Target'), 'http://z/' + path).pathname.slice(1)]));
+    const blob = path => {
+      if (!(path in urls)) { const c = file(path), type = /\.svg$/i.test(path) ? 'image/svg+xml' : ''; urls[path] = c && /\.(png|jpe?g|gif|bmp|webp|svg)$/i.test(path) ? URL.createObjectURL(new Blob([new Uint8Array(c)], { type })) : null; }
+      return urls[path];
+    };
+    const book = xml('xl/workbook.xml');
+    if (!book) return { sheets, close };
+
+    // "Place in Cell" images: cell vm="n" -> valueMetadata block n -> futureMetadata block -> rich value -> richValueRel -> image file.
+    let cellImages = [];
+    const meta = xml('xl/metadata.xml'), rv = xml('xl/richData/rdrichvalue.xml');
+    if (meta && rv) {
+      const keyPos = tags(xml('xl/richData/rdrichvaluestructure.xml'), 's').map(s => tags(s, 'k').findIndex(k => k.getAttribute('n') === '_rvRel:LocalImageIdentifier'));
+      const relIds = tags(xml('xl/richData/richValueRel.xml'), 'rel').map(r => r.getAttribute('r:id'));
+      const relPaths = rels('xl/richData/richValueRel.xml');
+      const values = tags(rv, 'rv').map(v => { const k = keyPos[+v.getAttribute('s')]; return k >= 0 ? blob(relPaths[relIds[+tags(v, 'v')[k].textContent]]) : null; });
+      const future = tags(meta, 'futureMetadata').find(f => f.getAttribute('name') === 'XLRICHVALUE');
+      const rvb = tags(future, 'bk').map(b => +tags(b, 'rvb')[0]?.getAttribute('i'));
+      cellImages = tags(tags(meta, 'valueMetadata')[0], 'bk').map(b => values[rvb[+tags(b, 'rc')[0]?.getAttribute('v')]]);
+    }
+
+    const bookRels = rels('xl/workbook.xml');
+    for (const sh of tags(book, 'sheet')) {
+      const path = bookRels[sh.getAttribute('r:id')], text = path && file(path);
+      if (!text) continue;
+      const list = sheets[sh.getAttribute('name')] = [];
+      if (cellImages.length) {
+        // A regex is lighter than DOMParser for a large sheet.
+        for (const [tag] of new TextDecoder().decode(new Uint8Array(text)).matchAll(/<c\b[^>]*\bvm="\d+"[^>]*>/g)) {
+          const url = cellImages[+tag.match(/\bvm="(\d+)"/)[1] - 1], ref = tag.match(/\br="([A-Z]+\d+)"/);
+          if (url && ref) { const { r, c } = XLSX.utils.decode_cell(ref[1]); list.push([r, c, url]); }
+        }
+      }
+      for (const drawing of Object.values(rels(path)).filter(p => /drawings\/[^/]+\.xml$/.test(p))) {
+        const drawingRels = rels(drawing), d = xml(drawing);
+        for (const anchor of [...tags(d, 'twoCellAnchor'), ...tags(d, 'oneCellAnchor')]) {
+          const from = tags(anchor, 'from')[0], embed = tags(anchor, 'blip')[0]?.getAttribute('r:embed');
+          const url = embed && blob(drawingRels[embed]);
+          if (from && url) list.push([+tags(from, 'row')[0].textContent, +tags(from, 'col')[0].textContent, url]);
+        }
+      }
+    }
+    return { sheets, close };
   }
 
   // The SQLite library (WebAssembly) loads only when the user opens a database.
@@ -537,13 +602,6 @@
   }
   // A regex that matches the search text. The capture group keeps the matches in split().
   const queryRegex = () => new RegExp(`(${state.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-  // A link to an image file, or a Google Drive file link. A Drive file shows as a thumbnail if the file is public.
-  function imageUrl(v) {
-    const s = String(v).trim();
-    const drive = s.match(/^https:\/\/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:export=\w+&)?id=)([\w-]+)/);
-    if (drive) return `https://drive.google.com/thumbnail?id=${drive[1]}&sz=w320`;
-    return /^https?:\/\/\S+\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)(\?\S*)?$/i.test(s) || /^data:image\/[\w+.-]+;base64,/.test(s) ? s : null;
-  }
   const escapeHtml = s => s.replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
 
   // ---------- render ----------
@@ -562,8 +620,8 @@
 
     const size = pageSize(), start = state.page * size, slice = state.filtered.slice(start, start + size);
     const wrap = $('wrap').checked ? ' wrap' : '';
-    const act = state.active, imgs = $('images').checked;
-    const cellHtml = v => { const u = imgs && imageUrl(v); return u ? `<img src="${escapeHtml(u)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : highlight(v); };
+    const act = state.active;
+    const cellHtml = v => v?.img ? `<img src="${escapeHtml(v.img)}" alt="Image">` : highlight(v);
     tbody.innerHTML = slice.map((r, ri) =>
       `<tr role="row"><td class="rownum" role="rowheader">${start + ri + 1}</td>` + cols.map(ci => {
         const isAct = act && act.r === ri && act.c === ci;
@@ -583,7 +641,7 @@
   // ---------- column menu ----------
   function buildColumnMenu() {
     const body = $('colmenubody');
-    body.innerHTML = '<div class="row"><button type="button" data-act="all">Show all</button><button type="button" data-act="none">Hide others</button></div>' +
+    body.innerHTML = '<div class="row"><button type="button" data-act="all">Show all</button><button type="button" data-act="none">Hide others</button><button type="button" data-act="copy" title="Copy the names of the visible columns, one name on each line">Copy names</button></div>' +
       state.headers.map((h, i) => `<label><input type="checkbox" data-col="${i}" ${state.hidden.has(i) ? '' : 'checked'}> <span>${escapeHtml(h)}</span></label>`).join('');
   }
   $('colmenubody').addEventListener('change', e => {
@@ -596,6 +654,10 @@
   });
   $('colmenubody').addEventListener('click', e => {
     const b = e.target.closest('button[data-act]'); if (!b) return;
+    if (b.dataset.act === 'copy') {
+      copyText(visibleCols().map(i => state.headers[i]).join('\n')).then(ok => { b.textContent = ok ? 'Copied' : 'Cannot copy'; setTimeout(() => { b.textContent = 'Copy names'; }, 1500); });
+      return;
+    }
     state.hidden = b.dataset.act === 'all' ? new Set() : new Set(state.headers.map((_, i) => i).slice(1));
     if (state.hidden.has(state.sortCol)) { state.sortCol = -1; state.sortDir = 1; }
     state.active = null;
@@ -697,6 +759,8 @@
     const a = state.active;
     $('cellhead').textContent = state.headers[a.c];
     $('cellval').textContent = v;
+    const img = state.filtered[state.page * pageSize() + a.r][a.c].img;
+    if (img) { const im = new Image(); im.src = img; im.alt = 'Image'; $('cellval').replaceChildren(im); }
     $('cellmeta').textContent = `Row ${(state.page * pageSize() + a.r + 1).toLocaleString()} · ${v.length.toLocaleString()} characters`;
     $('copied').hidden = true;
     $('cell').showModal();
@@ -786,7 +850,6 @@
   $('sheet').addEventListener('change', e => { newLoad(); selectSheet(e.target.value); });   // A sheet change is the newest load. It cancels any other load.
   $('headerrow').addEventListener('change', () => { state.active = null; buildFromRaw(); });
   $('wrap').addEventListener('change', render);
-  $('images').addEventListener('change', render);
   $('pagesize').addEventListener('change', () => { state.page = 0; state.active = null; render(); });
   $('first').onclick = () => page(0);
   $('prev').onclick = () => page(state.page - 1);
@@ -801,7 +864,7 @@
   };
   $('download').onclick = () => {
     const cols = visibleCols();
-    const csv = Papa.unparse({ fields: cols.map(i => state.headers[i]), data: state.filtered.map(r => cols.map(i => r[i])) });
+    const csv = Papa.unparse({ fields: cols.map(i => state.headers[i]), data: state.filtered.map(r => cols.map(i => String(r[i]))) });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     a.download = (state.name.replace(/\.[^.]+$/, '') || 'table') + (state.query ? '-filtered' : '') + '.csv';
